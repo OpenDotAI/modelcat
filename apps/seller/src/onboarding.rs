@@ -219,7 +219,7 @@ pub async fn setup(
                 &serde_json::to_vec_pretty(&patch)?,
                 0o600,
             )?;
-            format!("#!/bin/sh\nset -eu\nexport DSH_HOME={}\nexport MODELCAT_GATEWAY_KEY=$(cat {})\nexport PATH={}\":/opt/homebrew/bin:/usr/local/bin:$PATH\"\ncd {}\nexec npx --yes @deepseek-ai/dsh web\n",shell(&profile.to_string_lossy()),shell(&stored_key.to_string_lossy()),shell(&node_bin.as_ref().map(|p|p.to_string_lossy().to_string()).unwrap_or_default()),shell(&home.to_string_lossy()))
+            format!("#!/bin/sh\nset -eu\nexport DSH_HOME={}\nexport MODELCAT_GATEWAY_KEY=$(cat {})\nexport PATH={}\":/opt/homebrew/bin:/usr/local/bin:$PATH\"\ncd {}\nexec npx --yes @deepseek-ai/dsh web\n",shell(&profile.to_string_lossy()),shell(&stored_key.to_string_lossy()),shell(&node_bin.as_ref().map(|p|p.to_string_lossy().to_string()).unwrap_or_else(||"/opt/homebrew/bin:/usr/local/bin".into())),shell(&home.to_string_lossy()))
         }
     };
     let launch_path = root.join("launch.sh");

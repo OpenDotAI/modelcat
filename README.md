@@ -26,7 +26,7 @@ ModelCat 是模型提供者（MSP）的本地客户端。连接 CAT 网关、导
 ./modelcat stop
 ```
 
-新安装默认 profile 为 `~/.modelcat`；已有 `~/.channel-node` 时继续复用。`MODELCAT_DATA` / `--data-dir` 可指定独立 profile，旧 `CHANNEL_NODE_DATA` 仍兼容。默认只监听 `127.0.0.1:19700`。
+新安装默认 profile 为 `~/.modelcat`；已有 `~/.channel-node` 时继续复用。`MODELCAT_DATA` / `--data-dir` 可指定独立 profile，旧 `CHANNEL_NODE_DATA` 仍兼容，同时设置时旧变量优先以保持已有部署。默认只监听 `127.0.0.1:19700`。
 
 ## 买家网关配置
 
@@ -42,7 +42,7 @@ modelcat setup-client --client dsh --gateway https://YOUR-GATEWAY
 
 ## 构建与发布
 
-仓库只包含 ModelCat 客户端与必要的开源依赖，不含 CAT 网关、运行数据或用户凭据。每次客户端源码同步后，GitHub Actions 构建 macOS Apple Silicon / Intel 与 Linux x64 / ARM64 客户端，通过测试后创建带版本、校验和与更新说明的 Release。失败的构建不会更新 latest。历史 Release 资产不覆盖。
+仓库只包含 ModelCat 客户端与必要的开源依赖，不含 CAT 网关、运行数据或用户凭据。维护者在 CAT 工作区运行 `make release-modelcat`，先通过 baseline，再用本机已登录的 gh 同步客户端。每次客户端源码同步后，GitHub Actions 构建 macOS Apple Silicon / Intel 与 Linux x64 / ARM64 客户端，通过测试后创建带版本、校验和与更新说明的 Release。失败的构建不会更新 latest。历史 Release 资产不覆盖。
 
 ```sh
 cargo build --release --locked --manifest-path apps/seller/Cargo.toml

@@ -19,7 +19,7 @@ threading.Thread(target=server.serve_forever,daemon=True).start()
 try:
  with tempfile.TemporaryDirectory(prefix='modelcat-buyer-') as temp:
   temp=Path(temp);key=temp/'fixture.key';key.write_text('fixture-only-key')
-  env=dict(os.environ,MODELCAT_BUYER_HOME=str(temp/'buyers'),MODELCAT_APPLICATIONS_DIR=str(temp/'Applications'),ASALE_DISABLE_OS_KEYCHAIN_SCAN='1')
+  env=dict(os.environ,MODELCAT_BUYER_HOME=str(temp/'buyers'),MODELCAT_APPLICATIONS_DIR=str(temp/'Applications'),ASALE_DISABLE_OS_KEYCHAIN_SCAN='1',MODELCAT_DISABLE_IP_DISCOVERY='1')
   gateway=f'http://127.0.0.1:{server.server_port}'
   for client in ['codex','claude','dsh']:
    subprocess.run([binary,'setup-client','--client',client,'--gateway',gateway,'--key-file',key,'--no-launch'],env=env,check=True,capture_output=True)

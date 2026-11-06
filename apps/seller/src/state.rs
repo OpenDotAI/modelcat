@@ -16,8 +16,8 @@ pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 pub fn data_dir() -> String {
-    std::env::var("MODELCAT_DATA")
-        .or_else(|_| std::env::var("CHANNEL_NODE_DATA"))
+    std::env::var("CHANNEL_NODE_DATA")
+        .or_else(|_| std::env::var("MODELCAT_DATA"))
         .unwrap_or_else(|_| {
             let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
             let legacy = home.join(".channel-node");

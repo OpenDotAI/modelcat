@@ -25,6 +25,12 @@ def package(binary, target, version, output, identity=None, notary=None):
         shutil.copyfile(binary, executable)
         executable.chmod(0o755)
         (stage / 'README.txt').write_text('ModelCat ' + version + '\nRun ./modelcat start, then ./modelcat open.\nmacOS: extract ModelCat.app and move it into Applications before opening.\nThe first unsigned release requires macOS approval. No sudo or manual chmod is needed.\nCredentials are imported only after an explicit action in the local UI.\nhttps://github.com/OpenDotAI/modelcat\n')
+        project = Path(__file__).resolve().parents[1]
+        licenses = stage / 'licenses'
+        licenses.mkdir()
+        shutil.copyfile(project / 'LICENSE', licenses / 'ModelCat-LICENSE.txt')
+        shutil.copyfile(project / 'vendor/asale/LICENSE', licenses / 'Asale-LICENSE.txt')
+        shutil.copyfile(project / 'THIRD_PARTY_NOTICES.md', stage / 'THIRD_PARTY_NOTICES.md')
         files = []
         signing = 'not-applicable'
         if 'apple-darwin' in target:
@@ -35,7 +41,10 @@ def package(binary, target, version, output, identity=None, notary=None):
             macos.mkdir(parents=True)
             shutil.copyfile(executable, macos / 'modelcat')
             (macos / 'modelcat').chmod(0o755)
-            plist = {'CFBundleIdentifier': 'ai.opendot.modelcat', 'CFBundleName': 'ModelCat', 'CFBundleDisplayName': 'ModelCat', 'CFBundleExecutable': 'modelcat', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': version.split('-')[0].split('+')[0], 'CFBundleVersion': version, 'LSMinimumSystemVersion': '12.0', 'LSUIElement': True, 'NSHighResolutionCapable': True}
+            resources = app / 'Contents/Resources'
+            shutil.copytree(licenses, resources / 'licenses')
+            shutil.copyfile(stage / 'THIRD_PARTY_NOTICES.md', resources / 'THIRD_PARTY_NOTICES.md')
+            plist = {'CFBundleIdentifier': 'ai.opendot.modelcat', 'CFBundleName': 'ModelCat', 'CFBundleDisplayName': 'ModelCat', 'CFBundleExecutable': 'modelcat', 'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': version.split('-')[0].split('+')[0], 'CFBundleVersion': version.split('-')[0].split('+')[0], 'LSMinimumSystemVersion': '12.0', 'LSUIElement': True, 'NSHighResolutionCapable': True}
             (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(plist))
             sign_args = ['codesign', '--force', '--sign', identity or '-']
             if identity:
@@ -52,6 +61,7 @@ def package(binary, target, version, output, identity=None, notary=None):
                 subprocess.run(['xcrun', 'stapler', 'staple', str(app)], check=True)
                 notarize_zip.unlink()
                 signing = 'developer-id; notarized'
+            executable.unlink()  # The notarized app owns the one distributed Mach-O.
             app_zip = output / f'modelcat-{target}.zip'
             zip_tree(stage, app_zip)
             files.append(app_zip)
@@ -72,6 +82,8 @@ def package(binary, target, version, output, identity=None, notary=None):
             with tarfile.open(archive, 'w:gz') as tar:
                 tar.add(executable, arcname='modelcat')
                 tar.add(stage / 'README.txt', arcname='README.txt')
+                tar.add(licenses, arcname='licenses')
+                tar.add(stage / 'THIRD_PARTY_NOTICES.md', arcname='THIRD_PARTY_NOTICES.md')
             files.append(archive)
         metadata = {'version': version, 'target': target, 'signing': signing, 'files': [{'name': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in files]}
         (output / f'modelcat-{target}.json').write_text(json.dumps(metadata, indent=2) + '\n')

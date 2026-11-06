@@ -11,6 +11,7 @@ use std::{
 async fn download(url: &str, destination: &Path, max: usize) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
+        .user_agent("ModelCat/0.2 (+https://github.com/OpenDotAI/modelcat)")
         .build()?;
     let mut response = client.get(url).send().await?;
     ensure!(
@@ -128,7 +129,16 @@ pub async fn node(no_install: bool) -> Result<Option<PathBuf>> {
                 .and_then(|p| p.parse::<u32>().ok())
                 .unwrap_or(0);
             if output.status.success() && (major > 24 || (major == 24 && minor >= 9)) {
-                return Ok(bin);
+                if let Some(bin) = bin {
+                    return Ok(Some(bin));
+                }
+                if let Ok(found) = Command::new("which").arg("node").output() {
+                    let path = PathBuf::from(String::from_utf8_lossy(&found.stdout).trim());
+                    if found.status.success() {
+                        return Ok(path.parent().map(Path::to_path_buf));
+                    }
+                }
+                return Ok(None);
             }
         }
     }

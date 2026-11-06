@@ -49,6 +49,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       ASALE_DISABLE_OS_KEYCHAIN_SCAN: '1'
+      MODELCAT_DISABLE_IP_DISCOVERY: '1'
       MODELCAT_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4

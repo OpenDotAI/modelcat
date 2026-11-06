@@ -179,9 +179,14 @@ pub async fn account(app: &App) -> Result<Value> {
 
 // No provider credentials are sent. Fixture runs never contact an external service.
 async fn discover_public_ip() -> Option<String> {
-    if std::env::var("ASALE_DISABLE_OS_KEYCHAIN_SCAN").is_ok_and(|s| s == "1")
-        || std::env::var("MODELCAT_DISABLE_IP_DISCOVERY").is_ok_and(|s| s == "1")
-    {
+    if let Ok(raw) = std::env::var("MODELCAT_PUBLIC_IP") {
+        if let Ok(ip) = raw.parse::<std::net::IpAddr>() {
+            if !ip.is_loopback() && !ip.is_unspecified() && !ip.is_multicast() {
+                return Some(ip.to_string());
+            }
+        }
+    }
+    if std::env::var("MODELCAT_DISABLE_IP_DISCOVERY").is_ok_and(|s| s == "1") {
         return None;
     }
     let client = reqwest::Client::builder()
