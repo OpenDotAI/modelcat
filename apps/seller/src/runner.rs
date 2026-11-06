@@ -52,7 +52,7 @@ pub async fn verify_job(
         "invalid task identity or expiry"
     );
     ensure!(
-        payload.budget_tokens > 0 && payload.budget_tokens <= 32768,
+        payload.budget_tokens > 0 && payload.budget_tokens <= 1048576,
         "invalid budget"
     );
     let cfg = app.config.read().await;

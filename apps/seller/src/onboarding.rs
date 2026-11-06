@@ -59,7 +59,10 @@ fn read_key(path: Option<&Path>, stored: &Path) -> Result<String> {
     Ok(key)
 }
 
-pub async fn models(base: &str, key: &str) -> Result<Vec<String>> {
+pub async fn models(
+    base: &str,
+    key: &str,
+) -> Result<Vec<crate::model_capabilities::ModelDescriptor>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none())
@@ -89,20 +92,31 @@ pub async fn models(base: &str, key: &str) -> Result<Vec<String>> {
         .and_then(Value::as_array)
         .context("Gateway model list has no data array")?;
     let mut ids = BTreeSet::new();
+    let mut specs = Vec::new();
     for item in items {
         if let Some(id) = item["id"].as_str() {
             ensure!(
                 !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_graphic()),
                 "Invalid model ID in gateway response"
             );
-            ids.insert(id.to_owned());
+            if ids.insert(id.to_owned()) {
+                if let Some(spec) = crate::model_capabilities::descriptor(item) {
+                    if item["modelcat"]["configured"] != true {
+                        eprintln!("模型 {id} 使用已核实官方规格；旧网关兼容模式保留 32768 输出上限与默认 reasoning，升级网关后可更新完整参数。");
+                    }
+                    specs.push(spec)
+                } else {
+                    eprintln!("模型 {id} 尚未核实参数，暂不写入客户端；请管理员先配置该模型。");
+                }
+            }
         }
     }
     ensure!(
-        !ids.is_empty() && ids.len() <= 2000,
-        "No available models; contact the gateway administrator"
+        !specs.is_empty() && specs.len() <= 2000,
+        "No models with verified or explicitly configured capabilities; ask the administrator to configure each model"
     );
-    Ok(ids.into_iter().collect())
+    specs.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(specs)
 }
 
 pub async fn setup(
@@ -147,17 +161,29 @@ pub async fn setup(
         .join(client);
     let stored_key = root.join("gateway.key");
     let key = read_key(key_file, &stored_key)?;
-    let mut ids = models(&base, &key).await?;
-    if client == "claude" {
-        ids.retain(|s| s.to_ascii_lowercase().contains("claude"));
-        ensure!(!ids.is_empty(), "No Claude models are available; Claude Desktop requires an Anthropic Messages-compatible Claude model");
+    let mut specs = models(&base, &key).await?;
+    if client == "codex" {
+        specs.retain(|s| {
+            s.wire_apis.iter().any(|api| api == "openai-responses")
+                && !s.reasoning_efforts.is_empty()
+        });
     }
+    if client == "claude" {
+        specs.retain(|s| {
+            s.id.to_ascii_lowercase().contains("claude")
+                && s.wire_apis.iter().any(|api| api == "anthropic-messages")
+        });
+        ensure!(!specs.is_empty(), "No Claude models are available; Claude Desktop requires an Anthropic Messages-compatible Claude model");
+    }
+    ensure!(
+        !specs.is_empty(),
+        "No compatible models with configured capabilities for this client"
+    );
+    let ids: Vec<String> = specs.iter().map(|s| s.id.clone()).collect();
     write(&stored_key, key.as_bytes(), 0o600)?;
     write(
         &root.join("models.json"),
-        &serde_json::to_vec_pretty(
-            &json!({"data":ids.iter().map(|s|json!({"id":s})).collect::<Vec<_>>()}),
-        )?,
+        &serde_json::to_vec_pretty(&json!({"data":specs}))?,
         0o600,
     )?;
     let profile = root.join("profile");
@@ -171,10 +197,31 @@ pub async fn setup(
     } else {
         None
     };
+    if client == "dsh" && !no_launch {
+        let mut install = Command::new("npx");
+        if let Some(bin) = &node_bin {
+            install.env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            );
+        }
+        eprintln!("正在准备 DSH 运行环境，首次安装需要联网下载 …");
+        ensure!(
+            install
+                .args(["--yes", "@deepseek-ai/dsh@0.2.2-rc.1", "--version"])
+                .status()?
+                .success(),
+            "DSH installation failed; check the network and retry"
+        );
+    }
     let launcher = match client {
         "codex" => {
             let catalog = profile.join("model-catalog.json");
-            let entries: Vec<Value> = ids.iter().enumerate().map(|(i,id)| json!({"slug":id,"display_name":id,"description":"ModelCat gateway model","visibility":"list","supported_in_api":true,"priority":i,"default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"medium","description":"Default"}],"shell_type":"shell_command","base_instructions":"You are a helpful coding assistant.","supports_reasoning_summaries":false,"support_verbosity":false,"default_verbosity":null,"apply_patch_tool_type":null,"truncation_policy":{"mode":"tokens","limit":10000},"supports_parallel_tool_calls":true,"context_window":128000,"effective_context_window_percent":95,"experimental_supported_tools":[],"input_modalities":["text"],"prefer_websockets":false})).collect();
+            let entries: Vec<Value> = specs.iter().enumerate().map(|(i,spec)| {let id=&spec.id; json!({"slug":id,"display_name":id,"description":"ModelCat gateway model","visibility":"list","supported_in_api":true,"priority":i,"default_reasoning_level":spec.default_reasoning_effort,"supported_reasoning_levels":spec.reasoning_efforts.iter().map(|effort|json!({"effort":effort,"description":effort})).collect::<Vec<_>>(),"shell_type":"shell_command","base_instructions":"You are a helpful coding assistant.","supports_reasoning_summaries":false,"support_verbosity":false,"default_verbosity":null,"apply_patch_tool_type":null,"truncation_policy":{"mode":"tokens","limit":10000},"supports_parallel_tool_calls":true,"context_window":spec.context_window,"effective_context_window_percent":95,"experimental_supported_tools":[],"input_modalities":spec.input_modalities,"prefer_websockets":false})}).collect();
             write(
                 &catalog,
                 &serde_json::to_vec_pretty(&json!({"models":entries}))?,
@@ -213,13 +260,28 @@ pub async fn setup(
             )
         }
         _ => {
-            let patch = json!([{"id":"llm-pi-ai","config":{"providers":{"modelcat":{"displayName":"ModelCat","apiKeyEnv":"MODELCAT_GATEWAY_KEY","api":"openai-completions","baseURL":base,"models":ids.iter().map(|id|json!({"id":id,"name":id,"input":["text"]})).collect::<Vec<_>>()}}}},{"id":"agent-default-model","config":{"provider":"modelcat","model":ids[0]}}]);
+            let mut patch = json!([{"id":"llm-pi-ai","config":{"providers":{"modelcat":{"displayName":"ModelCat","apiKeyEnv":"MODELCAT_GATEWAY_KEY","api":"openai-completions","baseURL":base,"models":specs.iter().map(|s| {let mut m=json!({"id":s.id,"name":s.id,"input":s.input_modalities,"contextWindow":s.context_window,"maxTokens":s.max_output_tokens});if !s.reasoning_efforts.is_empty(){m["reasoningEfforts"]=Value::Object(s.reasoning_efforts.iter().map(|v|(if v=="none"{"off".into()}else{v.clone()},json!(v))).collect());}else{m["reasoningEfforts"]=json!(false)};m}).collect::<Vec<_>>()}}}},{"id":"agent-default-model","config":{"provider":"modelcat","model":ids[0]}}]);
+            let default_effort = &specs[0].default_reasoning_effort;
+            if !default_effort.is_empty()
+                && specs
+                    .iter()
+                    .all(|s| &s.default_reasoning_effort == default_effort)
+            {
+                patch[0]["config"]["providers"]["modelcat"]["reasoning"] =
+                    json!(if default_effort == "none" {
+                        "off"
+                    } else {
+                        default_effort.as_str()
+                    });
+            }
             write(
                 &profile.join("cordis.patch.yml"),
                 &serde_json::to_vec_pretty(&patch)?,
                 0o600,
             )?;
-            format!("#!/bin/sh\nset -eu\nexport DSH_HOME={}\nexport MODELCAT_GATEWAY_KEY=$(cat {})\nexport PATH={}\":/opt/homebrew/bin:/usr/local/bin:$PATH\"\ncd {}\nexec npx --yes @deepseek-ai/dsh web\n",shell(&profile.to_string_lossy()),shell(&stored_key.to_string_lossy()),shell(&node_bin.as_ref().map(|p|p.to_string_lossy().to_string()).unwrap_or_else(||"/opt/homebrew/bin:/usr/local/bin".into())),shell(&home.to_string_lossy()))
+            let helper = root.join("launch-dsh.mjs");
+            write(&helper, include_bytes!("../assets/launch-dsh.mjs"), 0o600)?;
+            format!("#!/bin/sh\nset -eu\nexport DSH_HOME={}\nexport MODELCAT_GATEWAY_KEY=$(cat {})\nexport PATH={}\":/opt/homebrew/bin:/usr/local/bin:$PATH\"\nexec node {}\n",shell(&profile.to_string_lossy()),shell(&stored_key.to_string_lossy()),shell(&node_bin.as_ref().map(|p|p.to_string_lossy().to_string()).unwrap_or_else(||"/opt/homebrew/bin:/usr/local/bin".into())),shell(&helper.to_string_lossy()))
         }
     };
     let launch_path = root.join("launch.sh");

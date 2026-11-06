@@ -11,7 +11,7 @@ class API(http.server.BaseHTTPRequestHandler):
  def do_GET(self):
   self.calls.append(self.path)
   if self.path!='/v1/models' or self.headers.get('Authorization')!='Bearer fixture-only-key':self.send_error(401);return
-  self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps({'data':[{'id':i} for i in self.models]}).encode())
+  self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps({'data':[{'id':i,'modelcat':{'configured':True,'context_window':64000 if 'codex' in i else 96000,'max_output_tokens':8192 if 'codex' in i else 16384,'official_max_output_tokens':32768,'input_modalities':['text'],'reasoning_efforts':['low','medium'] if 'codex' in i else [],'default_reasoning_effort':'low' if 'codex' in i else '', 'wire_apis':['openai-responses','openai-completions','anthropic-messages'],'source_url':'https://fixture.example/spec'}} for i in self.models]}).encode())
  def do_POST(self):raise AssertionError('Inference must never be called by setup')
  def log_message(self,*args):pass
 server=http.server.ThreadingHTTPServer(('127.0.0.1',0),API)
@@ -24,9 +24,12 @@ try:
   for client in ['codex','claude','dsh']:
    subprocess.run([binary,'setup-client','--client',client,'--gateway',gateway,'--key-file',key,'--no-launch'],env=env,check=True,capture_output=True)
   assert len(list((temp/'Applications').glob('*.app')))==3
+  dsh=next((temp/'buyers').glob('*/dsh'));patch=json.loads((dsh/'profile/cordis.patch.yml').read_text());models=patch[0]['config']['providers']['modelcat']['models'];assert {m['id']:m['maxTokens'] for m in models}=={'fixture-codex':8192,'claude-fixture':16384,'fixture-dsh':16384},'DSH ignored per-model budgets'
+  assert {m['id']:m['contextWindow'] for m in models}['fixture-codex']==64000
+  assert (dsh/'launch-dsh.mjs').exists() and 'launch-dsh.mjs' in (dsh/'launch.sh').read_text()
   profiles=list((temp/'buyers').glob('*/codex/profile'))
   assert len(profiles)==1
-  catalog=profiles[0]/'model-catalog.json';assert len(json.loads(catalog.read_text())['models'])==3
+  catalog=profiles[0]/'model-catalog.json';assert len(json.loads(catalog.read_text())['models'])==1;assert json.loads(catalog.read_text())['models'][0]['context_window']==64000
   API.models=['fixture-codex-v2','claude-fixture-v2']
   for client in ['codex','claude','dsh']:
    subprocess.run([binary,'setup-client','--client',client,'--gateway',gateway,'--no-launch'],env=env,check=True,capture_output=True)

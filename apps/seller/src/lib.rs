@@ -5,6 +5,7 @@ pub mod desktop_install;
 pub mod discovery;
 pub mod gateway;
 pub mod kiro;
+pub mod model_capabilities;
 pub mod onboarding;
 pub mod runner;
 pub mod state;

@@ -82,7 +82,7 @@ async fn connect(app: Arc<App>, binding: &Binding) -> Result<()> {
                 let current=app.binding.read().await.clone();
                 ensure!(current.as_ref().is_some_and(|b|b.node_id==binding.node_id&&b.gateway_url==binding.gateway_url&&b.node_secret==binding.node_secret),"binding changed");
                 let cfg=app.config.read().await.clone();
-                let data=json!({"id":"","type":"heartbeat","payload":{"models":app.available_models().await,"paused":cfg.paused,"version":option_env!("MODELCAT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),"public_ip":public_ip}}).to_string();
+                let data=json!({"id":"","type":"heartbeat","payload":{"models":app.available_models().await,"paused":cfg.paused,"version":option_env!("MODELCAT_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),"public_ip":public_ip,"output_budget_ceiling":1048576}}).to_string();
                 app.runtime.write().await.gw_bytes_out+=data.len()as u64;
                 writer.send(Message::Text(data)).await?;
             }

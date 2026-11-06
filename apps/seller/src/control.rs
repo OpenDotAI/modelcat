@@ -330,7 +330,8 @@ async fn local_request(
         .as_i64()
         .or(body["max_tokens"].as_i64())
         .unwrap_or(4096);
-    if !(1..=32768).contains(&budget) {
+    if !(1..=crate::model_capabilities::local_output_limit(&offer.upstream_model)).contains(&budget)
+    {
         return error("invalid output budget");
     }
     body["model"] = json!(offer.upstream_model);

@@ -56,6 +56,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -66,6 +69,8 @@ jobs:
         env:
           MODELCAT_TEST_BINARY: ${{ github.workspace }}/apps/seller/target/${{ matrix.target }}/release/modelcat
         run: python3 baseline/scenarios/buyer_onboarding.py
+      - name: DSH launcher acceptance (local fixture only)
+        run: node baseline/scenarios/dsh_launcher.cjs
       - name: Package client (signature status recorded in metadata)
         run: python3 scripts/package-modelcat.py --binary apps/seller/target/${{ matrix.target }}/release/modelcat --target ${{ matrix.target }} --version "$MODELCAT_VERSION" --output release
       - uses: actions/upload-artifact@v4
