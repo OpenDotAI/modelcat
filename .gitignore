@@ -1,0 +1,7 @@
+**/target/
+release/
+.env
+.data/
+*.db
+*.log
+.DS_Store

@@ -1,0 +1,100 @@
+name: Build and release ModelCat
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional version, e.g. 0.2.1 (must be a new release)'
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: modelcat-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          base=re.search(r'^version = "([^"]+)"',Path('apps/seller/Cargo.toml').read_text(),re.M)[1]
+          version=os.environ.get('REQUESTED') or (base if os.environ['GITHUB_RUN_NUMBER']=='1' else base+'-build.'+os.environ['GITHUB_RUN_NUMBER'])
+          if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?',version):raise SystemExit('Invalid version')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('version='+version+'\n')
+          PY
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    env:
+      ASALE_DISABLE_OS_KEYCHAIN_SCAN: '1'
+      MODELCAT_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/seller -> target
+      - run: cargo test --locked --manifest-path apps/seller/Cargo.toml
+      - run: cargo build --release --locked --manifest-path apps/seller/Cargo.toml --target ${{ matrix.target }}
+      - name: Buyer profile acceptance (local fixture only)
+        env:
+          MODELCAT_TEST_BINARY: ${{ github.workspace }}/apps/seller/target/${{ matrix.target }}/release/modelcat
+        run: python3 baseline/scenarios/buyer_onboarding.py
+      - name: Package client (signature status recorded in metadata)
+        run: python3 scripts/package-modelcat.py --binary apps/seller/target/${{ matrix.target }}/release/modelcat --target ${{ matrix.target }} --version "$MODELCAT_VERSION" --output release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelcat-${{ matrix.target }}
+          path: release/
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: modelcat-*
+          merge-multiple: true
+          path: release
+      - name: Publish immutable version and release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          files=sorted(p for p in Path('release').iterdir() if p.is_file())
+          Path('release/SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files))
+          metadata=[json.loads(p.read_text()) for p in files if p.suffix=='.json']
+          status='\n'.join('- '+m['target']+': '+m['signing'] for m in metadata)
+          Path('release-notes.md').write_text('# ModelCat '+os.environ['VERSION']+'\n\n'+Path('CHANGELOG.md').read_text()+'\n\n## Build\n\nClient source commit: `'+os.environ['GITHUB_SHA']+'`\n\n## Signing status\n\n'+status+'\n\nDownloads preserve executable permissions. Unsigned/ad-hoc macOS builds still require Gatekeeper approval. Verify downloads against SHA256SUMS.\n')
+          PY
+          gh release create "v$VERSION" release/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ModelCat $VERSION" --notes-file release-notes.md --latest
