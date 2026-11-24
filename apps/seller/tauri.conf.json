@@ -1,0 +1,8 @@
+{
+  "productName": "ModelCat",
+  "version": "0.2.0",
+  "identifier": "ai.opendot.modelcat.experiment",
+  "build": {"frontendDist": "web"},
+  "app": {"windows": [], "withGlobalTauri": true, "security": {"capabilities": [{"identifier":"bootstrap", "windows":["main"], "permissions":["core:default"]}]}},
+  "bundle": {"active": false, "icon": ["icons/icon.png", "icons/ModelCat.icns"]}
+}

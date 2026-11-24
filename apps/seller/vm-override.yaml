@@ -1,0 +1,28 @@
+# Lima imports macOS system proxy settings even when process environment propagation
+# is disabled. Workspace tools configure their proxies separately.
+propagateProxyEnv: false
+env:
+  ftp_proxy: ""
+  FTP_PROXY: ""
+  http_proxy: ""
+  HTTP_PROXY: ""
+  https_proxy: ""
+  HTTPS_PROXY: ""
+  no_proxy: ""
+  NO_PROXY: ""
+# The VM has no mounts and uses SSH for file transfers. Install Docker separately
+# so apt downloads can't delay Lima's own boot readiness check.
+provision:
+- mode: dependency
+  skipDefaultDependencyResolution: true
+  script: |
+    #!/bin/sh
+    exit 0
+
+# Receive the Codex browser callback only on the Mac loopback interface.
+portForwards:
+- guestPort: 1455
+  hostPort: 1455
+  guestIP: "127.0.0.1"
+  hostIP: "127.0.0.1"
+  proto: tcp

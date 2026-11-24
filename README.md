@@ -2,18 +2,57 @@
 
 Share token and receive coin.
 
-ModelCat 是模型提供者（MSP）的本地客户端。连接 CAT 网关、导入自己明确选择的 Codex / Claude Code / Kiro 登录、识别模型并提交报价，审核后提供服务。订阅凭据保存在本机。
+ModelCat 是模型提供者（MSP）的本地客户端。macOS 隔离工作区支持 Claude API Key 和 Ollama，接入的模型可在本地调用，也可绑定 CAT 网关、提交报价后提供服务。
 
 [下载最新版](https://github.com/OpenDotAI/modelcat/releases/latest) · [全部版本与更新说明](https://github.com/OpenDotAI/modelcat/releases)
 
-## macOS
+## Apple Silicon 桌面开发预览
 
-1. 按芯片下载 DMG：Apple Silicon 为 `aarch64-apple-darwin`，Intel 为 `x86_64-apple-darwin`。
-2. 打开 DMG，把 **ModelCat.app** 拖到 **Applications**，然后打开。App 自动启动本地服务并在浏览器中打开管理页。
-3. 从网站 MSP 工作台下载节点绑定文件，在 ModelCat 的“绑定与设置”中导入。
-4. 在“工具与模型”明确导入登录信息，识别模型、多选 ID、填写报价并提交审核；通过后恢复接单。
+在仓库根目录运行 `./scripts/dev-desktop.sh`。脚本用相邻
+`toolchain` 中的 Rust 工具链构建 Tauri 和 VM 节点，并直接打开 macOS 窗口。
+首次验证平台 API Key 后，默认工作区位于相邻的 `ModelCatVMData`。修改代码后关闭窗口，再运行同一条命令。
+
+关闭主窗口或退出 ModelCat 时，默认会停止工作区虚拟机。可在 **ModelCat → 设置…（⌘,）** 关闭「退出时关闭虚拟机」，让工作区继续运行。
+也可以通过 **工作区 → 停止工作区** 手动关闭虚拟机，或在应用退出后运行 `./scripts/dev-desktop.sh --stop`。
+
+开发预览打开工作区后，可以运行 `./scripts/dev-desktop.sh status` 查看节点状态，或用
+`./scripts/dev-desktop.sh pause` 暂停接单。相同入口也支持 `bind`、`quotes` 和 `resume`。
+
+如需验收 Claude 模拟账号授权，先安装 Google Chrome，再运行 `./scripts/dev-desktop.sh --oauth-preview`。
+默认工作区就绪后，另开一个终端运行 `./scripts/dev-desktop.sh --oauth-preview-proxy`。该命令通过 SSH 把本机的 `127.0.0.1:18779` 转发到 VM 内的测试代理。
+在「模型服务 → Claude 账号模拟授权」发起授权并在系统浏览器确认。
+授权成功后可在「本地调用」选择 `claude-oauth-preview`。该模型通过测试代理校验模拟令牌并返回固定结果。
+返回客户端可刷新模拟令牌。停止测试代理可以验证授权、刷新和模型调用失败。
+模拟凭据只保留在节点进程内存中。
+
+## macOS 隔离实验版
+
+1. 打开 Apple Silicon DMG，把 **ModelCat Experiment.app** 拖到有写入权限的目录，再打开 App。
+2. 输入平台 API Key。验证通过后，App 在专用 Linux VM 中启动 Docker 和 ModelCat 节点，并显示工作区概览。
+3. 在「模型服务」连接 Claude API Key，或填写 Ollama 地址并登记模型。在「本地调用」读取连接参数。
+4. 如需对外提供模型，从 MSP 工作台下载节点绑定文件，在「绑定与设置」导入。选择模型、填写报价并提交审核，获批后恢复接单。
+
+Claude 兼容中转站可在「模型服务 → Claude API Key → 连接选项」填写 HTTPS API 地址和对应密钥。中转模型在「本地调用」中可用，仅向该地址发送服务商密钥。
+
+「工作区 → 工具管理 → Codex」提供本机 Codex 的 ChatGPT 登录。需要预先安装支持 `app-server` 的官方 Codex CLI。代理留空时使用系统默认浏览器。如果填写 Mac 登录代理，ModelCat 用独立的 Chrome 窗口打开授权页，并将同一代理传给 Codex 登录服务。登录保存在当前工作区的 `codex-account` 目录，可在同一面板退出。VM 内的 Codex 工具和「模型服务」各有自己的配置。
 
 包内已设置执行权限，不需要用户手动 chmod。当前未配置 Apple Developer ID 时发布为 ad-hoc 签名，仍需按 macOS 的提示，在“系统设置 → 隐私与安全性”批准首次运行。没有声称已公证，不要求关闭 Gatekeeper 或给整个磁盘授权。导入其他 App 的钥匙串或受保护文件时，系统仍可能要求用户授权。
+
+### 在本机 Claude Code 中调用
+
+在「本地调用」选择已登记的模型。下面用 `ollama/qwen2.5:0.5b` 做一次纯文本试调用。把地址和模型 ID 换成界面显示的值，运行到密钥提示时，粘贴同一页面的工作区密钥并按回车。
+
+```sh
+printf '工作区密钥: '
+IFS= read -rs MODELCAT_LOCAL_KEY
+printf '\n'
+env -u ANTHROPIC_API_KEY \
+  ANTHROPIC_BASE_URL=http://127.0.0.1:19701 \
+  ANTHROPIC_AUTH_TOKEN="$MODELCAT_LOCAL_KEY" \
+  claude --model 'ollama/qwen2.5:0.5b' --tools '' \
+  --system-prompt '请直接回答用户的问题。' -p '请用一句话解释什么是哈希。'
+unset MODELCAT_LOCAL_KEY
+```
 
 ## Linux / 命令行
 

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="coat" x1="55" y1="190" x2="205" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B74F3B"/>
+      <stop offset="1" stop-color="#DF7859"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <path id="tail" fill="none" stroke="#B74F3B" stroke-width="17" stroke-linecap="round"
+          d="M104 148C80 163 46 159 34 138 25 121 34 105 48 105"/>
+    <path id="hind-paw" fill="url(#coat) #CD654B"
+          d="M85 168L109 180L88 206C84 212 75 213 69 208C64 203 64 196 69 189Z"/>
+    <path id="front-paw" fill="url(#coat) #CD654B"
+          d="M155 156L188 170C197 173 198 183 192 189C189 192 184 193 179 191L139 178Z"/>
+    <g id="body">
+      <path fill="url(#coat) #CD654B"
+            d="M78 157C79 141 98 126 117 117
+               C110 104 109 90 116 77L111 49
+               C110 43 115 40 120 42L147 56
+               C156 52 166 50 176 51L195 34
+               C200 30 206 33 207 39L211 69
+               C224 81 229 96 224 110
+               C218 128 198 137 176 137
+               C173 145 167 153 161 159
+               C158 168 152 175 142 179
+               C131 183 119 184 108 182C96 182 89 178 83 171
+               C80 168 78 163 78 157Z"/>
+      <path fill="#F8BD9E"
+            d="M122 52 137 61 124 70Z
+               M190 55 200 45 202 62Z"/>
+      <path fill="#FFE0C8"
+            d="M165 115C165 107 175 101 186 102
+               C196 102 205 107 204 114
+               C203 121 195 125 184 125
+               C174 125 166 122 165 115Z"/>
+      <path d="M155 94Q160 86 168 91M193 86Q199 80 206 85M183 110Q188 114 192 109"
+            fill="none" stroke="#462B2B" stroke-width="4.5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

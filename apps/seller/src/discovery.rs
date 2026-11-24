@@ -8,6 +8,9 @@ use anyhow::{ensure, Result};
 use serde_json::{json, Value};
 impl App {
     pub async fn discover_models(&self) -> Result<Value> {
+        if self.vm_workspace {
+            return Ok(json!({"accounts":[]}));
+        }
         let snapshot = self.accounts.read().await.clone();
         let mut results = vec![];
         for a in snapshot.iter().filter(|a| a.enabled) {

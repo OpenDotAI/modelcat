@@ -106,6 +106,7 @@ impl Session {
     }
 }
 pub async fn import(app: &App, v: Value) -> Result<()> {
+    app.require_legacy_accounts()?;
     let session: Session = serde_json::from_value(v)
         .map_err(|_| anyhow::anyhow!("invalid Kiro session JSON; accessToken is required"))?;
     session.validate()?;
@@ -121,6 +122,7 @@ pub async fn import(app: &App, v: Value) -> Result<()> {
     app.persist_credential(cred, "kiro-session", None).await
 }
 pub async fn import_local(app: &App) -> Result<usize> {
+    app.require_legacy_accounts()?;
     let home = crate::state::home_dir().ok_or_else(|| anyhow::anyhow!("home unavailable"))?;
     let path = home.join(".aws/sso/cache/kiro-auth-token.json");
     let raw = tokio::fs::read(path)

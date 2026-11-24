@@ -475,7 +475,14 @@ impl PlatformCallback {
 pub async fn exchange(p: &OAuthProvider, ac: &AuthCode) -> anyhow::Result<serde_json::Value> {
     // Provider token endpoints are region-blocked in some markets; go through
     // the same proxy-aware client the refresh loop uses.
-    let http = asale_client_core::http::upstream();
+    exchange_with_client(&asale_client_core::http::upstream(), p, ac).await
+}
+
+pub(crate) async fn exchange_with_client(
+    http: &reqwest::Client,
+    p: &OAuthProvider,
+    ac: &AuthCode,
+) -> anyhow::Result<serde_json::Value> {
     let mut params = vec![
         ("grant_type", "authorization_code".to_string()),
         ("code", ac.code.clone()),
@@ -703,6 +710,106 @@ fn urlencode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn simulated_claude_pkce_flow_stays_on_the_dedicated_proxy() {
+        use axum::{
+            extract::{Query, State},
+            http::{StatusCode, Uri},
+            response::{IntoResponse, Redirect},
+            routing::{get, post},
+            Json, Router,
+        };
+        use serde_json::{json, Value};
+        use std::collections::HashMap;
+        use tokio::sync::{oneshot, Mutex};
+
+        const ISSUER: &str = "claude-oauth.fixture.invalid";
+        type Grant = Arc<Mutex<Option<HashMap<String, String>>>>;
+        let grant: Grant = Default::default();
+        let issuer = Router::new()
+            .route("/authorize", get(async |State(grant): State<Grant>, uri: Uri, Query(query): Query<HashMap<String, String>>| {
+                assert_eq!(uri.host(), Some(ISSUER));
+                assert_eq!(query["client_id"], "modelcat-oauth-fixture");
+                assert_eq!(query["response_type"], "code");
+                assert_eq!(query["code_challenge_method"], "S256");
+                let mut callback = reqwest::Url::parse(&query["redirect_uri"]).unwrap();
+                assert_eq!(callback.host_str(), Some("localhost"));
+                callback.query_pairs_mut().append_pair("code", "fixture-code")
+                    .append_pair("state", &query["state"]);
+                *grant.lock().await = Some(query);
+                Redirect::to(callback.as_str())
+            }))
+            .route("/token", post(async |State(grant): State<Grant>, uri: Uri, Json(token): Json<Value>| {
+                assert_eq!(uri.host(), Some(ISSUER));
+                let mut grant = grant.lock().await;
+                let valid = grant.as_ref().is_some_and(|authorized| {
+                    let verifier = token["code_verifier"].as_str().unwrap_or_default();
+                    token["grant_type"] == "authorization_code"
+                        && token["code"] == "fixture-code"
+                        && token["client_id"] == authorized["client_id"]
+                        && token["state"] == authorized["state"]
+                        && token["redirect_uri"] == authorized["redirect_uri"]
+                        && B64URL.encode(Sha256::digest(verifier.as_bytes())) == authorized["code_challenge"]
+                });
+                if !valid {
+                    return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid_grant"}))).into_response();
+                }
+                grant.take();
+                Json(json!({"access_token":"fixture-access","refresh_token":"fixture-refresh","expires_in":60})).into_response()
+            }))
+            .with_state(grant);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (disconnect, stopped) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, issuer).with_graceful_shutdown(async {
+                let _ = stopped.await;
+            }).await.unwrap()
+        });
+        let provider = OAuthProvider {
+            name: "claude-fixture".into(),
+            authorize_url: "http://claude-oauth.fixture.invalid/authorize",
+            token_url: "http://claude-oauth.fixture.invalid/token",
+            client_id: "modelcat-oauth-fixture".into(),
+            client_secret: None,
+            scope: "fixture:inference",
+            extra_authorize_params: &[],
+            anthropic_style: true,
+            redirect_port: None,
+            redirect_path: "/callback",
+        };
+        let proxy_address = format!("http://{address}");
+        let browser_proxy = reqwest::Proxy::custom(move |url| {
+            (url.host_str() == Some(ISSUER)).then(|| proxy_address.clone())
+        });
+        let browser = reqwest::Client::builder().no_proxy().proxy(browser_proxy)
+            .timeout(std::time::Duration::from_secs(3)).build().unwrap();
+        let node = reqwest::Client::builder().no_proxy()
+            .proxy(reqwest::Proxy::all(format!("http://{address}")).unwrap())
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(3)).build().unwrap();
+        let (authorize, pending) = begin(&provider).await.unwrap();
+        let redirect = reqwest::Url::parse(&authorize).unwrap().query_pairs()
+            .find(|(name, _)| name == "redirect_uri").unwrap().1.into_owned();
+        let forged = browser.get(redirect).query(&[("code", "fixture-code"), ("state", "foreign-state")])
+            .send().await.unwrap();
+        assert_eq!(forged.status(), StatusCode::NOT_FOUND);
+        assert!(browser.get(&authorize).send().await.unwrap().status().is_success());
+        let code = tokio::time::timeout(std::time::Duration::from_secs(3), pending.wait())
+            .await.unwrap().unwrap();
+        let tokens = exchange_with_client(&node, &provider, &code).await.unwrap();
+        assert_eq!(tokens["access_token"], "fixture-access");
+        assert_eq!(tokens["refresh_token"], "fixture-refresh");
+        let replay = exchange_with_client(&node, &provider, &code).await.unwrap();
+        assert_eq!(replay["error"], "invalid_grant");
+        disconnect.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(3), server)
+            .await.unwrap().unwrap();
+        assert!(browser.get(authorize).send().await.unwrap_err().is_connect());
+        assert!(exchange_with_client(&node, &provider, &code).await.unwrap_err()
+            .downcast::<reqwest::Error>().unwrap().is_connect());
+    }
 
     #[tokio::test]
     async fn antigravity_authorization_requests_a_refresh_token() {

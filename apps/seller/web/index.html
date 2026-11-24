@@ -1,73 +1,2175 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ModelCat · 渠道节点</title>
-<style>:root{color-scheme:light;--display:"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Songti SC", serif;--body:"Helvetica Neue", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;--mono:"SFMono-Regular", Consolas, "Liberation Mono", monospace}
-:root{font:14px/1.6 "Helvetica Neue", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;color:#2d2b27;background:#f4f1eb}body{margin:0}header{padding:24px 5vw;border-bottom:1px solid #ded8ce;display:flex;justify-content:space-between}main{max-width:1200px;padding:24px;margin:auto}h1{margin:0;font-size:23px}h2{font-size:17px}section{padding:20px;border:1px solid #ded8ce;border-radius:14px;margin-bottom:18px;background:#fffdf8}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}input,select,button,textarea{font:inherit;color:inherit;background:#f4f1eb;border:1px solid #cec6ba;border-radius:8px;padding:9px;margin:4px}button{cursor:pointer;background:#b65c43;color:#f4f1eb}button:disabled{opacity:.5;cursor:wait}:focus-visible{outline:2px solid #586f63;outline-offset:3px}label{color:#716b63}input[type=checkbox]{accent-color:#b65c43}nav{display:flex;gap:8px;overflow:auto;border-bottom:1px solid #ded8ce;margin-bottom:24px}nav button{border:0;border-radius:0;background:none;color:#716b63;padding:12px 16px}nav button.active{border-bottom:2px solid #b65c43;color:#b65c43}input{max-width:230px}textarea{box-sizing:border-box;width:100%;height:220px}table{width:100%;border-collapse:collapse;white-space:nowrap}td,th{text-align:left;padding:8px;border-bottom:1px solid #ded8ce}.scroll{overflow:auto}.muted,small{color:#716b63}.hidden{display:none!important}pre{white-space:pre-wrap;overflow-wrap:anywhere}#notice{position:sticky;top:0;background:#eee7dd;padding:12px;display:none;z-index:2}.metric{font-size:25px;font-weight:600}.row{display:flex;flex-wrap:wrap;gap:12px}.row>div{flex:1;min-width:130px}a{color:#586f63}
+<link rel="stylesheet" href="/workspace.css">
+<link rel="icon" href="/modelcat.svg" type="image/svg+xml">
+<body class="workspace">
+<aside class="sidebar" data-shell="guest"></aside>
+<script src="/navigation.js"></script>
+<main class="workspace-main">
+<header class="page-heading"><h1 id="page-title" tabindex="-1">工作区</h1><output id="connection" class="state-badge" data-state="idle" data-icon="idle">网关状态未知</output></header>
+<div class="notice-stack">
+    <p id="internet-status" class="connection-status" role="status" hidden>当前离线。已配置的本地模型可继续使用，云端调用和平台接单需要联网。</p>
+    <div id="notice" role="status"></div>
+    <p id="runtime-issue" class="runtime-issue" role="status" data-tab-pane="overview" hidden></p>
+    <p id="connection-feedback" role="status" data-tab-pane="models" hidden></p>
+</div>
+<section id="unlock" hidden><h2 class="section-title" data-icon="key">解锁节点</h2><form id="unlock-form"><input id="token" type="password" placeholder="本地管理密钥" required><button>解锁</button></form><p class="muted">使用终端的 channel-node open，或读取节点数据目录中的 control.token。</p></section>
+<div id="app" class="hidden"><div class="overview" data-tab-pane="overview">
+<div class="workspace-summary">
+<section class="topology-panel" data-host-link aria-labelledby="topology-title" hidden>
+    <div class="topology-content">
+        <h2 id="topology-title">本机工作区</h2>
+        <output class="state-badge" id="topology-status">正在检查</output>
+        <div class="controls">
+            <button class="primary" id="workspace-next" data-icon="plus" disabled>添加模型连接</button>
+            <button data-open-tab="models" id="workspace-models" class="quiet-button" hidden>模型配置 <span aria-hidden="true">›</span></button>
+        </div>
+    </div>
+    <div class="topology" data-topology="workspace" data-logo="/modelcat.svg" role="group" aria-label="工作区拓扑"></div>
+</section>
+<dl id="workspace-runtime" class="runtime-strip hidden">
+    <div><dt data-icon="network">节点</dt><dd id="runtime-node">未知</dd></div>
+    <div><dt data-icon="gateway">网关</dt><dd id="runtime-gateway">未知</dd></div>
+    <div><dt data-icon="activity">请求</dt><dd><button id="request-state-link" data-open-tab="requests" title="查看请求记录"><span id="runtime-requests">读取中</span><span aria-hidden="true"> ›</span></button></dd></div>
+</dl>
+</div>
+<section class="service" id="seller-service">
+    <div>
+        <div class="order-heading" data-panel-row>
+            <h2 class="section-title" data-icon="seller">平台接单</h2>
+            <span id="order-count">可接单 —</span><button type="button" id="order-model-list-action" hidden class="panel-action" data-panel-label="查看模型" data-panel-close="收起模型" aria-controls="order-models" aria-expanded="false">查看模型</button>
+            <button type="button" id="open-quote" class="quiet-button" hidden></button>
+        </div>
+        <div class="order-feedback"><span id="node-status" role="status"></span><span id="gateway-time" aria-live="off"></span></div>
+    </div>
+    <label class="seller-toggle"><span id="order-action">读取中</span>
+        <span class="order-switch">
+            <input id="pause" type="checkbox" role="switch" aria-label="平台接单" aria-describedby="node-status" disabled>
+            <span class="order-switch-track" aria-hidden="true"><img src="/modelcat.svg" alt="" width="30" height="30"></span>
+        </span>
+    </label>
+    <ul id="order-models" aria-label="当前可接单的模型" hidden></ul>
+</section>
+<section class="chart-panel traffic-panel">
+    <div class="usage-tabs" role="group" aria-label="统计视图">
+        <label><input type="radio" name="usage-view" value="network" checked><span>网络流量</span></label>
+        <label><input type="radio" name="usage-view" value="tokens"><span>Token 用量</span></label>
+    </div>
+    <div class="traffic-ranges" role="group" aria-label="流量时间范围">
+        <label><input type="radio" name="traffic-range" value="5m" checked><span>5m</span></label>
+        <label><input type="radio" name="traffic-range" value="1h"><span>1h</span></label>
+        <label><input type="radio" name="traffic-range" value="24h"><span>24h</span></label>
+    </div>
+    <div id="traffic" class="traffic">
+        <div>
+            <div class="traffic-rates"><span><i data-legend="rx">↓ 网关接收</i> <b data-rate="rx">—</b></span><span><i data-legend="tx">↑ 网关发送</i> <b data-rate="tx">—</b></span></div>
+            <div class="traffic-plot">
+                <span class="traffic-scale"></span>
+                <div class="traffic-graph" tabindex="0" role="group" aria-label="网关收发速率趋势，可用左右方向键查看采样详情">
+                    <svg viewBox="0 0 640 128" preserveAspectRatio="none" role="img" aria-label="网关收发速率趋势">
+                        <path class="traffic-grid" d="M0 3H640M0 64H640M0 125H640"/>
+                        <path data-series="rx"/><path data-series="tx"/>
+                    </svg>
+                    <div class="traffic-inspection" hidden aria-hidden="true">
+                        <span class="traffic-marker" data-marker="rx"></span>
+                        <span class="traffic-marker" data-marker="tx"></span>
+                        <div class="traffic-tooltip">
+                            <div class="traffic-tooltip-time"></div>
+                            <div><span data-detail-label="rx">↓ 接收</span> <strong data-detail="rx"></strong></div>
+                            <div><span data-detail-label="tx">↑ 发送</span> <strong data-detail="tx"></strong></div>
+                        </div>
+                    </div>
+                    <span class="traffic-gap" hidden aria-hidden="true">无采样</span>
+                    <span class="traffic-empty" role="status"></span>
+                    <span class="traffic-announcement" role="status"></span>
+                </div>
+            </div>
+            <div class="traffic-axis" aria-hidden="true"><span id="traffic-start">5 分钟前</span><span id="traffic-mid"></span><span>现在</span></div>
+        </div>
+        <table><caption>累计流量</caption><thead><tr><th scope="col">统计范围</th><th scope="col">接收</th><th scope="col">发送</th></tr></thead>
+            <tbody><tr><th scope="row">网关 · 本地累计</th><td id="total-gw-in">—</td><td id="total-gw-out">—</td></tr>
+            <tr><th scope="row">厂商 · 最近记录</th><td id="total-up-in">—</td><td id="total-up-out">—</td></tr></tbody></table>
+        <table id="token-totals" hidden><caption>时段用量</caption><tbody>
+            <tr><th scope="row">请求数</th><td data-total="requests">—</td></tr>
+            <tr><th scope="row">输入 Token</th><td data-total="rx">—</td></tr>
+            <tr><th scope="row">输出 Token</th><td data-total="tx">—</td></tr>
+            <tr><th scope="row">缓存输入</th><td data-total="cache">—</td></tr>
+        </tbody></table>
+    </div>
+</section>
+</div>
+<div id="seller-service-slot" data-tab-pane="seller"></div>
+<div class="desk-tabs" data-tab-pane="seller" role="group" aria-label="卖家管理">
+    <button data-icon="tag" data-seller-view="catalog" aria-controls="seller-catalog" aria-pressed="true">模型报价</button>
+    <button data-icon="draft" data-seller-view="saved" aria-controls="saved-offers" aria-pressed="false">已保存报价 <span id="saved-count">0</span></button>
+    <button data-icon="shield" data-seller-view="review" aria-controls="seller-review" aria-pressed="false">审核记录</button>
+    <button data-icon="link" data-seller-view="node" aria-controls="seller-node" aria-pressed="false">节点绑定</button>
+</div>
+<section class="desk-sheet" id="seller-node" data-tab-pane="seller" hidden>
+    <header class="section-toolbar"><h2 class="section-title" data-icon="link">节点绑定</h2><output id="step-binding" class="state-badge"></output></header>
+    <dl class="connection-rows"><div><dt>平台网关</dt><dd id="binding"></dd></div>
+        <div><dt>节点 ID</dt><dd><code id="seller-node-id"></code></dd></div>
+        <div><dt>结算币种</dt><dd id="seller-currency"></dd></div></dl>
+    <div id="binding-editor">
+        <div class="section-toolbar">
+            <small class="muted">使用管理员提供的 JSON 文件</small>
+            <input type="file" id="binding-file" accept="application/json,.json" hidden>
+            <button type="button" data-icon="folder" id="choose-binding"><span>选择绑定文件…</span></button>
+        </div>
+        <div id="binding-selection" hidden>
+            <strong id="binding-name"></strong>
+            <p id="binding-preview" class="muted" role="status"></p>
+            <div class="controls">
+                <button type="button" class="primary" data-icon="link" id="bind"><span>确认绑定</span></button>
+                <button type="button" class="quiet-button" id="cancel-binding">取消</button>
+            </div>
+        </div>
+    </div>
+</section>
+<section class="connections-panel" data-tab-pane="models" aria-label="连接配置">
+    <header class="controls">
+        <div class="connection-sources" role="group" aria-label="连接类型">
+            <label><input type="radio" name="connection-source" value="all" checked><span>全部连接</span></label>
+            <label><input type="radio" name="connection-source" value="cloud"><span>云端 API</span></label>
+            <label><input type="radio" name="connection-source" value="local"><span>本地服务</span></label>
+        </div>
+        <button id="connection-add" class="primary" data-icon="plus" type="button" aria-expanded="false" aria-haspopup="dialog" aria-controls="connection-wizard">添加连接</button>
+    </header>
+    <dialog id="connection-wizard" class="app-drawer connection-wizard" aria-labelledby="connection-wizard-title">
+        <header>
+            <button id="connection-back" class="quiet-button" data-icon="back" type="button" aria-label="返回添加连接，选择连接类型" hidden>添加连接</button>
+            <h3 class="with-glyph" data-icon="link" id="connection-wizard-title" tabindex="-1">添加连接</h3>
+            <button class="quiet-button" type="button" id="connection-cancel">取消</button>
+        </header>
+        <div id="connection-types" class="connection-types"></div>
+        <form id="connection-form" class="connection-form" hidden>
+            <div class="form-field">
+                <label for="connection-name" data-icon="tag">连接名称</label>
+                <input id="connection-name" name="label" required maxlength="64" placeholder="团队网关">
+            </div>
+            <div class="form-field" id="connection-auth-field">
+                <label for="connection-auth">认证方式</label>
+                <span class="choice-menu"><select id="connection-auth" name="auth">
+                    <option value="key">API Key</option>
+                    <option value="oauth">ChatGPT / Codex 订阅账号 · OAuth</option>
+                </select></span>
+            </div>
+            <div class="form-field" id="connection-base-field">
+                <div class="connection-field-heading">
+                    <label for="connection-base" data-icon="link">服务地址</label>
+                    <span id="connection-base-help">
+                        <button type="button" class="quiet-button" data-icon="info" aria-label="地址填写说明" aria-describedby="connection-base-hint"></button>
+                        <span role="tooltip" id="connection-base-hint">只填主机地址会自动补 /v1。网关有自定义前缀时，可填写完整基础路径。</span>
+                    </span>
+                </div>
+                <input id="connection-base" name="base" type="url" required autocapitalize="none" spellcheck="false">
+            </div>
+            <div class="form-field" id="connection-protocol-label">
+                <label for="connection-protocol" data-icon="sliders">接口格式</label>
+                <span class="choice-menu"><select name="protocol" id="connection-protocol">
+                    <option value="chat_completions">OpenAI · Chat Completions</option>
+                    <option value="responses">OpenAI · Responses</option>
+                    <option value="messages">Anthropic · Messages</option>
+                    <option value="ollama" hidden>Ollama</option>
+                </select></span>
+            </div>
+            <div class="form-field" id="connection-key-label">
+                <label for="connection-key" data-icon="key">API Key</label>
+                <div class="connection-secret">
+                    <input id="connection-key" name="key" type="password" required autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    <button type="button" id="connection-key-toggle" class="quiet-button icon-button" data-icon="eye" aria-controls="connection-key" aria-label="显示 API Key" title="显示 API Key"></button>
+                </div>
+            </div>
+            <div id="connection-device" hidden>
+                <fieldset id="codex-login-method">
+                    <legend>授权方式</legend>
+                    <div class="segments">
+                        <label><input type="radio" name="codexMethod" value="browser" checked><span>浏览器登录</span></label>
+                        <label><input type="radio" name="codexMethod" value="device"><span>一次性设备码</span></label>
+                    </div>
+                </fieldset>
+                <div id="connection-device-pending" hidden>
+                    <div class="authorization-status">
+                        <p role="status" tabindex="-1" id="codex-wait-status" data-icon="clock">等待账号授权…</p>
+                        <button type="button" class="quiet-button" id="codex-open-browser">打开 OpenAI 授权页 <span aria-hidden="true">↗</span></button>
+                    </div>
+                    <p id="device-code-line">设备码 <strong id="connection-device-code"></strong></p>
+                    <div id="codex-manual"><button type="button" class="panel-action" data-panel-label="手动提交回调地址" data-panel-close="收起" aria-controls="callback-entry-fields" aria-expanded="false">手动提交回调地址</button>
+                        <div class="callback-field" id="callback-entry-fields" hidden>
+                            <label for="codex-callback">浏览器未自动返回时，粘贴完整回调地址</label>
+                            <div class="callback-entry">
+                                <input id="codex-callback" type="password" autocomplete="off" spellcheck="false">
+                                <button type="button" id="codex-submit-callback">提交回调</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="detected-models" class="endpoint-preview" hidden>
+                <h4 data-icon="models">上次检测到的模型 <span id="detected-count"></span></h4>
+                <ul id="detected-list"></ul>
+            </div>
+            <div class="endpoint-preview"><h4 data-icon="network">本地调用端点</h4><dl id="connection-endpoints"></dl></div>
+            <div class="controls"><button id="connection-reauthorize" type="button" hidden>重新授权</button><button class="primary" type="submit">测试并保存</button></div>
+        </form>
+        <div id="connection-saved" hidden>
+            <div class="saved-identity">
+                <span class="saved-check" aria-hidden="true" data-icon="check"></span>
+                <div><h4 id="connection-saved-name"></h4><p id="connection-saved-plan"></p></div>
+            </div>
+            <p id="connection-saved-models"></p>
+            <ul id="connection-saved-list"></ul>
+        </div>
+        <div id="connection-wait" hidden>
+            <p role="status">正在等待本地服务。若 macOS 询问本地网络权限，请点「允许」。连通后会自动保存。</p>
+            <button type="button" class="quiet-button" id="connection-stop">停止等待</button>
+        </div>
+        <p id="connection-error" role="alert"></p>
+    </dialog>
+    <dialog id="remove-connection" aria-labelledby="remove-title">
+        <h3 id="remove-title">移除连接？</h3><p id="remove-description"></p>
+        <form method="dialog" class="controls"><button value="cancel" autofocus>取消</button><button class="destructive" value="remove">移除连接</button></form>
+    </dialog>
+    <div id="connection-list"></div>
+</section>
+<section data-tab-pane="models"><h2 class="section-title" data-icon="account">订阅账号</h2><div class="row"><div><select id="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="kiro">Kiro</option></select><button data-icon="folder" id="import">从本机 CLI 导入</button><button data-icon="key" id="oauth">OAuth 登录</button></div></div><p class="muted">导入会读取所选 CLI 的登录凭据，不读取工作区。共享刷新令牌可能影响原 CLI 登录；独立 OAuth 登录更适合持续服务。</p><div id="oauth-flow" class="hidden"><a id="oauth-link" target="_blank" rel="noopener">打开授权页面</a><p>远程浏览器无法回调时，粘贴最终跳转 URL 或授权码：</p><input id="oauth-code" placeholder="授权码 / 跳转 URL"><button id="submit-code">提交</button></div><button type="button" class="panel-action" data-panel-label="导入 Kiro Session JSON" data-panel-close="收起" aria-controls="kiro-import-body" aria-expanded="false">导入 Kiro Session JSON</button><div class="kiro-import" id="kiro-import-body" hidden><p class="muted">选择 Kiro 导出的会话文件（含 accessToken，可含 refreshToken、region、profileArn、clientId、clientSecret）。仅在本地加密保存。</p><input type="file" id="kiro-session" accept="application/json"><button id="import-kiro">导入 Kiro Session</button><p class="muted">Kiro 当前适配文本 Responses 请求；工具调用和图片会明确拒绝，未知用量进入 GW 核对。</p></div><div id="accounts" class="scroll"></div></section>
+<section class="desk-sheet" id="seller-catalog" data-tab-pane="seller">
+    <header class="section-toolbar">
+        <h2 class="section-title" id="quote-title" tabindex="-1" data-icon="tag">模型报价</h2>
+        <small class="muted" id="quote-price-source"></small>
+        <button class="quiet-button" data-icon="refresh" id="discover-models">刷新可用模型</button>
+    </header>
+    <div class="quote-actions controls">
+        <label class="quote-search-field"><span data-icon="search" aria-hidden="true"></span><input id="quote-search" type="search" placeholder="搜索模型或来源" aria-label="搜索模型或来源"></label>
+        <small id="quote-autosaved" role="status"></small><small id="quote-feedback" class="quote-result" role="status"></small>
+        <button id="quote-changes" type="button" aria-pressed="false" disabled>只看改动</button>
+        <button id="reset-quotes" class="quiet-button" title="恢复所有改动模型的平台已批准报价，没有已批准报价时清空手填价格" disabled>重置报价</button>
+        <button class="primary" data-icon="send" id="submit-edits" title="将所有已修改的模型报价提交审核" disabled><span>提交审核</span></button>
+    </div>
+    <div id="discovered-models" class="scroll"></div>
+    <p id="quote-no-match" class="muted" hidden>没有匹配的模型</p>
+    <div id="manual-offer"><button type="button" class="panel-action" data-panel-label="手动添加模型" data-panel-close="收起" aria-controls="offer-form" aria-expanded="false">手动添加模型</button><form id="offer-form" hidden><input name="model" placeholder="对外模型 ID" required><select name="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="kiro">Kiro</option><option value="custom">已配置 API 上游</option></select><input name="upstream_model" placeholder="厂商模型 ID" required><input name="input_price_per_m" placeholder="输入单价 / M" required><input name="output_price_per_m" placeholder="输出单价 / M" required><button>保存</button></form></div>
+</section>
+<section id="saved-offers" class="desk-sheet" data-tab-pane="seller" hidden>
+    <header class="section-toolbar"><h2 class="section-title" data-icon="draft">已保存报价</h2>
+        <div class="controls"><small id="saved-quote-feedback" class="quote-result" role="status"></small><button class="primary" data-icon="send" id="submit-quotes" disabled><span>提交审核</span></button></div></header>
+    <div id="offers" class="scroll"></div>
+    <div id="saved-empty" hidden><p class="muted">还没有保存的报价</p><button id="start-quote" data-icon="tag">去报价</button></div>
+</section>
+<section class="desk-sheet" id="seller-review" data-tab-pane="seller" hidden>
+    <header class="section-toolbar">
+        <h2 class="section-title" data-icon="shield">审核状态</h2>
+        <button class="quiet-button" data-icon="refresh" id="load-quotes">刷新</button>
+    </header>
+    <p class="muted" id="step-quotes" role="status"></p>
+    <div id="quote-reviews" class="scroll"></div>
+</section>
+<section id="network-preferences" data-tab-pane="network">
+    <a class="prefs-back" data-host-link hidden href="tauri://localhost/vm.html?page=settings">‹ 返回设置</a>
+    <form id="settings">
+        <div class="net-group">
+            <h2 class="section-title" data-icon="network">出站连接</h2>
+            <div class="net-box">
+                <div class="net-row"><div><span id="proxy-choice-label">连接方式</span><small id="proxy-hint"></small></div>
+                    <div id="proxy-choice" class="segments" role="radiogroup" aria-labelledby="proxy-choice-label" aria-describedby="proxy-hint">
+                        <label><input type="radio" name="proxy-choice" value="auto" checked><span>自动检测</span></label>
+                        <label><input type="radio" name="proxy-choice" value="off"><span>直接连接</span></label>
+                        <label><input type="radio" name="proxy-choice" value="manual"><span>指定代理</span></label>
+                    </div>
+                </div>
+                <label id="proxy-address-row" class="net-row" hidden>代理地址<input id="proxy" placeholder="http://127.0.0.1:7890" autocapitalize="none" spellcheck="false"></label>
+                <fieldset id="proxy-modes" class="proxy-modes" hidden>
+                    <legend class="sr-only">代理范围</legend>
+                    <div class="net-row"><span>代理范围</span><div class="segments">
+                        <label><input type="radio" name="proxy-mode" value="rules" checked><span>按规则</span></label>
+                        <label><input type="radio" name="proxy-mode" value="global"><span>工作区全局</span></label>
+                    </div></div>
+                </fieldset>
+                <label id="claude-direct-rule" class="net-row" hidden><span>Claude API 请求绕过代理<small id="claude-direct-hint">开启后，使用 Claude API Key 的请求直接连接上游服务。</small></span><input aria-describedby="claude-direct-hint" id="claude-api-direct" type="checkbox" switch role="switch"></label>
+            </div>
+        </div>
+        <div class="net-group">
+            <h2 class="section-title" data-icon="sliders">请求处理</h2>
+            <div class="net-box"><div class="net-row"><div><label for="concurrency">节点并发请求数</label><small id="concurrency-hint">平台订单与通过报价模型转发的本地请求共享名额。达到上限时，节点拒绝新请求。</small></div>
+                <div class="resource-stepper" id="concurrency-stepper">
+                    <button type="button" data-step="-1" aria-label="减少并发请求数">−</button>
+                    <input id="concurrency" aria-describedby="concurrency-hint" type="number" required min="1" max="32" value="2">
+                    <button type="button" data-step="1" aria-label="增加并发请求数">+</button>
+                </div></div></div>
+        </div>
+        <div class="net-save"><span id="network-settings-status" role="status"></span><button class="primary" type="submit" disabled>保存更改</button></div>
+    </form>
+    <div class="net-group">
+        <h2 class="section-title" data-icon="tools">诊断与高级配置</h2>
+        <div class="net-box">
+            <div><div class="net-row" data-panel-row><span>Claude 出口诊断</span><button type="button" class="panel-action" data-panel-label="查看检测项" data-panel-close="收起" aria-controls="network-checks" aria-expanded="false">查看检测项</button></div>
+                <div class="net-content" id="network-checks" hidden>
+                    <div class="probe-list">
+                        <div class="probe-row">
+                            <span class="probe-icon" data-icon="activity"></span>
+                            <div class="probe-reading"><strong>API 出口</strong>
+                                <div role="status"><span class="state-badge" id="api-proxy-badge"></span><small id="api-proxy-status">按已保存的网络设置探测模型接口</small></div>
+                            </div>
+                            <button type="button" id="test-proxy" data-icon="play" aria-label="检测 API 出口">检测</button>
+                        </div>
+                        <div class="probe-row">
+                            <span class="probe-icon" data-icon="key"></span>
+                            <div class="probe-reading"><strong>授权出口</strong>
+                                <div role="status"><span class="state-badge" id="oauth-proxy-badge"></span><small id="oauth-proxy-status">通过专用代理探测授权与令牌接口</small></div>
+                            </div>
+                            <button type="button" id="test-oauth-proxy" data-icon="play" aria-label="检测授权出口">检测</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="net-row"><span>完整配置</span><button type="button" data-open-dialog="config-editor" aria-haspopup="dialog">编辑 JSON</button></div>
+            <dialog id="config-editor" class="task-dialog" aria-labelledby="config-heading">
+                <header><h2 id="config-heading">编辑完整配置</h2><button type="button" data-close-dialog>关闭</button></header>
+                <div class="net-content"><textarea id="config-json" aria-label="完整配置 JSON" aria-describedby="config-edit-status" spellcheck="false"></textarea>
+                    <div class="controls"><button id="save-json" disabled>校验并保存</button><button id="discard-json" class="quiet-button" hidden>撤销修改</button></div>
+                    <p class="muted" id="config-edit-status" role="status"></p>
+                </div>
+            </dialog>
+        </div>
+    </div>
+</section>
+<section id="request-billing" data-tab-pane="billing" aria-labelledby="request-billing-title" hidden>
+    <div class="section-toolbar">
+        <h2 id="request-billing-title" class="section-title" data-icon="billing" tabindex="-1">请求结算</h2>
+        <button id="return-to-trace" class="quiet-button" type="button">返回请求详情</button>
+    </div>
+    <dl class="connection-rows">
+        <div><dt>请求 ID</dt><dd><code id="billed-request-id"></code></dd></div>
+        <div><dt>实际模型</dt><dd id="billed-model"></dd></div>
+        <div><dt>处理结果</dt><dd id="billed-result"></dd></div>
+        <div><dt>Token 用量</dt><dd id="billed-usage"></dd></div>
+        <div><dt>网关结算</dt><dd id="billed-settlement" role="status"></dd></div>
+        <div><dt>卖家应收</dt><dd id="billed-amount"></dd></div>
+        <div><dt>账单编号</dt><dd id="billed-invoice"></dd></div>
+    </dl>
+</section>
+<div data-tab-pane="billing">
+    <div class="desk-tabs" role="group" aria-label="收益明细">
+        <button data-ledger-view="earnings" aria-controls="earnings" aria-pressed="true">平台账单</button>
+        <button data-ledger-view="confirmed" aria-controls="confirmed" aria-pressed="false">请求明细</button>
+        <button data-ledger-view="local-usage" aria-controls="local-usage" aria-pressed="false">本地用量</button>
+    </div>
+<section class="desk-sheet ledger">
+    <header class="section-toolbar"><h2 class="section-title" data-icon="billing">平台待付款</h2><button class="quiet-button" data-icon="refresh" id="load-earnings">刷新账单</button></header>
+    <strong id="balance-value">—</strong><p id="pending-earnings" class="muted" role="status"></p>
+    <p class="ledger-note">平台按成交请求的实际用量和报价计价，出账后由平台向卖家付款。本地调试仅计入用量。</p>
+    <button id="ledger-bind" class="quiet-button" hidden>前往绑定节点 ›</button>
+    <div class="catalog-tools"><input id="ledger-search" type="search" aria-label="搜索收益明细" placeholder="搜索账单或支付凭证"><small role="status" id="ledger-count"></small></div>
+    <div id="earnings" class="scroll"></div><div id="confirmed" class="scroll" hidden></div>
+</section>
+<div id="local-usage" hidden>
+<section class="history-panel" data-request-history aria-labelledby="history-title">
+    <h2 id="history-title" class="section-title" data-icon="activity">每日请求</h2>
+    <div class="request-plot">
+        <span class="plot-scale" aria-hidden="true"><span data-peak></span><span>0</span></span>
+        <ol aria-label="最近 15 天每天的请求次数"></ol>
+    </div>
+    <div class="plot-dates" aria-hidden="true"><span data-first-day></span><span>今天</span></div>
+    <small>最近 15 天 · 来自最近 1,000 条本地记录</small>
+</section>
+<section class="chart-panel billing-chart" data-token-chart>
+    <header class="section-toolbar"><h2 class="section-title" data-icon="billing">本地 Token 用量</h2>
+        <div class="usage-filters">
+            <div id="usage-period" class="traffic-ranges" role="radiogroup" aria-label="用量时间范围">
+                <label><input type="radio" name="usage-period" value="0" checked><span>全部</span></label>
+                <label><input type="radio" name="usage-period" value="1" aria-label="近 24 小时"><span>24 小时</span></label>
+                <label><input type="radio" name="usage-period" value="7" aria-label="近 7 天"><span>7 天</span></label>
+                <label><input type="radio" name="usage-period" value="30" aria-label="近 30 天"><span>30 天</span></label>
+            </div>
+            <select hidden id="usage-model" aria-label="用量模型"><option value="">全部模型</option></select>
+        </div>
+    </header>
+    <div class="usage-chart-toolbar">
+        <div class="usage-views" role="group" aria-label="用量维度">
+            <button data-usage-view="total" aria-pressed="false">总量</button>
+            <button data-usage-view="model" aria-pressed="true">按模型</button>
+            <button data-usage-view="day" aria-pressed="false">按日期</button>
+        </div>
+        <span class="chart-count"><strong data-requests>0</strong> 次请求</span>
+    </div>
+    <div id="usage-breakdown"></div>
+    <small>统计范围为工作区最近 1,000 条请求记录</small>
+</section>
+</div></div>
+<section data-tab-pane="requests" id="history-page" hidden>
+    <dl class="history-metrics">
+        <div><dt>已配置连接</dt><dd id="history-connections">—</dd></div>
+        <div><dt>已配置模型</dt><dd id="history-models">—</dd></div>
+        <div><dt id="history-period">近 24 小时请求</dt><dd id="history-total">—</dd></div>
+        <div class="history-filter-metric"><dt><button type="button" data-history-status="running" aria-pressed="false" aria-controls="history-rows" aria-describedby="history-active">进行中<span aria-hidden="true"> ›</span></button></dt><dd id="history-active">—</dd></div>
+        <div class="history-filter-metric"><dt><button type="button" data-history-status="failed" aria-pressed="false" aria-controls="history-rows" aria-describedby="history-failed">失败<span aria-hidden="true"> ›</span></button></dt><dd id="history-failed">—</dd></div>
+    </dl>
+    <div class="history-log"><div class="history-toolbar"><h2>调用明细</h2>
+        <div class="traffic-ranges history-ranges" id="history-range" role="group" aria-label="请求时间范围">
+            <label><input type="radio" name="history-range" value="1" checked><span>近 24 小时</span></label>
+            <label><input type="radio" name="history-range" value="7"><span>近 7 天</span></label>
+            <label><input type="radio" name="history-range" value="0"><span>全部时间</span></label>
+        </div>
+        <span class="choice-menu"><select id="history-source" aria-label="模型连接"><option value="*">全部连接</option></select></span>
+        <span class="choice-menu"><select id="history-status" aria-label="请求状态"><option value="">全部状态</option><option value="running">进行中</option><option value="ok">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option></select></span>
+        <button id="history-refresh" type="button" data-icon="refresh" aria-label="刷新请求记录" title="刷新请求记录"></button></div>
+        <div class="history-columns" aria-hidden="true"><span>模型 / 连接</span><span>调用来源</span><span>时间</span><span>状态</span><span>耗时</span><span></span></div>
+        <div id="history-rows"></div><p id="history-message" role="status"></p>
+        <button id="history-more" type="button" hidden>加载更多</button>
+    </div>
+</section>
 
-::selection{background:#ead5c9;color:#2d2b27}
-body{background-image:none;-webkit-font-smoothing:antialiased}
-h1,h2{font-family:var(--display);font-weight:400}
-button,a,input,select,textarea{transition:background-color .16s,border-color .16s,color .16s}
-button:hover:not(:disabled){filter:none}
-input,select,textarea{background:#fffdf8;border-color:#d7d0c5;box-shadow:0 1px 2px #3d302006}
-input:hover,select:hover,textarea:hover{border-color:#b9ad9d}
-input:focus,select:focus,textarea:focus{border-color:#b65c43}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #b65c43;outline-offset:3px}
-code,pre{font-family:var(--mono)}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+<section data-tab-pane="models">
+<div class="previous-connections" hidden><button type="button" data-open-dialog="legacy-connections" aria-haspopup="dialog">管理旧版连接</button>
+<dialog id="legacy-connections" class="task-dialog" aria-labelledby="legacy-heading"><header><h2 id="legacy-heading">旧版连接管理</h2><button type="button" data-close-dialog>关闭</button></header>
+<div class="source-board" aria-label="旧版连接状态">
+    <div class="source-summary"><span class="process-icon" data-icon="chip"></span><div><strong>Ollama</strong><output id="source-ollama" class="state-badge">正在检查</output></div></div>
+    <div class="source-summary"><span class="process-icon" data-icon="key"></span><div><strong>Claude API</strong><output id="source-claude" class="state-badge">正在检查</output></div></div>
 
-header{background:#f4f1eb;border-bottom:1px solid #ded8ce}
-header .brand{font-family:var(--body);font-weight:600;letter-spacing:-.6px}header .brand span{color:#b65c43}
-h1{font-size:34px;letter-spacing:-.7px}h2{font-size:24px;line-height:1.3;letter-spacing:-.3px}
-section,.card{border-color:#e0d9ce;box-shadow:0 2px 8px #3d302004}
-button{background:#b65c43;color:#fffdf8;border-color:#b65c43;border-radius:8px;font-weight:500}
-button:hover:not(:disabled){background:#9b4935;border-color:#9b4935}
-button.secondary{background:transparent;color:#514b43;border-color:#d7d0c5}button.secondary:hover:not(:disabled){background:#ece6dc;border-color:#c8beaf}
-.tabs button,nav button{border-radius:7px 7px 0 0}.tabs button.active,nav button.active{background:#efe5da;color:#9b4935;border-bottom-color:#b65c43}
-.tabs button:hover:not(:disabled),nav button:hover:not(:disabled){background:#eee7dd;color:#514b43;border-color:transparent}
-.subtabs button.active{background:#eee4d9;color:#914d38}.subtabs button:hover:not(:disabled){background:#eee7dd;color:#514b43;border-color:#d7d0c5}
-th{font-family:var(--body);font-size:11px;font-weight:500;letter-spacing:0;color:#716b63}thead{background:#f5f1e9}tbody tr:hover{background:#f8f5ef}
-.metric{font-family:var(--display);font-weight:400;font-size:36px;color:#39352e;font-variant-numeric:tabular-nums}
-#balance{color:#716b63;font-family:var(--body);font-variant-numeric:tabular-nums}pre{background:#f1ece3;border:1px solid #e0d9ce}
-#notice{background:#fffdf8;color:#39352e;border:1px solid #d7c4b5;box-shadow:0 6px 24px #3d302014;border-radius:10px}
-@media(max-width:700px){h1{font-size:29px}h2{font-size:22px}}
+</div>
+<div class="previous-source"><header class="model-source-title"><span class="process-icon source-symbol" data-icon="key"></span><h3>Claude API Key</h3></header>
+<form class="model-source-form" id="claude-source-form"><div class="form-field"><label for="claude-source-key">Claude API Key</label><input id="claude-source-key" type="password" autocomplete="off" maxlength="512" required></div> <button>验证并连接</button>
+<button type="button" class="panel-action" data-panel-label="编辑连接选项" data-panel-close="收起" aria-controls="claude-source-options" aria-expanded="false">编辑连接选项</button><div id="claude-source-options" hidden>
+<div class="form-field"><label for="claude-source-url">中转 API 地址（可选）</label><input id="claude-source-url" type="url" placeholder="https://api.anthropic.com" maxlength="256" spellcheck="false" autocomplete="off"></div>
+<div class="form-field"><label for="claude-workspace-id">官方工作区 ID（可选）</label><input id="claude-workspace-id" placeholder="wrkspc_…" maxlength="128" spellcheck="false" autocomplete="off"></div>
+</div></form>
+<p id="claude-source-status" role="status"></p><button id="claude-source-recheck" class="hidden">重新检测</button><button id="claude-source-disconnect" class="hidden">断开 API Key</button>
+</div>
+<div id="claude-oauth-preview" class="previous-source hidden">
+<h3 class="section-title" data-icon="account">Claude 账号模拟授权</h3>
+<div class="controls"><button id="preview-authorize">发起模拟授权</button> <a id="preview-browser" class="hidden" target="_blank" rel="noopener">在独立 Chrome 窗口中继续</a> <button id="preview-refresh" class="hidden">刷新模拟令牌</button></div>
+<p id="preview-status" role="status"></p>
+</div>
+<div class="previous-source"><header class="model-source-title">
+    <span class="process-icon source-symbol" data-icon="chip"></span><h3>Ollama</h3>
+    <output id="ollama-state" class="state-badge"></output>
+</header>
+<form class="model-source-form" id="ollama-form"><div class="form-field"><label for="ollama-origin">推理地址（从工作区访问）</label><input id="ollama-origin" type="url" placeholder="http://192.168.1.20:11434" required></div> <button>检测连接</button></form>
+<div id="ollama-result" class="hidden"><div class="form-field"><label for="ollama-model">模型</label><select id="ollama-model"></select></div> <button data-icon="models" id="ollama-register">登记模型</button></div>
+</div>
+</dialog></div>
+</section>
+<dialog id="model-trial-drawer" class="app-drawer connection-wizard" aria-labelledby="model-trial-title">
+    <header><h3 id="model-trial-title" class="with-glyph" data-icon="terminal">模型调试</h3><button id="model-trial-close" class="quiet-button" type="button">关闭</button></header>
+<section aria-label="本地模型调用" class="trial-workbench" data-phase="idle">
+    <template id="trial-cat-art">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" aria-hidden="true">
+            <g class="cat-stride">
+                <use href="/modelcat.svg#tail" class="cat-tail"></use>
+                <use href="/modelcat.svg#hind-paw" class="cat-hind-paw"></use>
+                <use href="/modelcat.svg#front-paw" class="cat-front-paw"></use>
+                <use href="/modelcat.svg#body"></use>
+            </g>
+        </svg>
+    </template>
+    <div class="trial-reader">
+    <div class="workspace-summary trial-route">
+        <div class="trial-map">
+            <span class="trial-wire" aria-hidden="true"><i></i><i></i></span>
+            <div class="trial-station model-destination"><span class="station-icon" aria-hidden="true" id="trial-target-icon" data-icon="models"></span>
+                <div class="destination-caption"><b id="destination-model">选择模型</b><small id="destination-source"></small></div>
+            </div>
+            <div class="trial-station"><span class="station-core" data-trial-cat></span><b>ModelCat</b></div>
+            <label class="trial-station trial-origin" for="trial-prompt"><span class="station-icon" data-icon="mac"></span><b>此页面</b></label>
+        </div>
+    </div>
+        <div class="trial-status">
+            <span class="trial-mascot" data-trial-cat></span>
+            <span id="inference-result-status" role="status">待发送</span><div id="trial-metrics" hidden>
+            <dl aria-label="本次调用统计">
+                <div title="从发送到客户端读完回复"><dt data-icon="clock">总耗时</dt><dd data-metric="total"></dd></div>
+                <div title="从发送到首个非空文本片段"><dt data-icon="bolt">首字 TTFT</dt><dd data-metric="first"></dd></div>
+                <div title="首末文本片段间隔 ÷（输出 token 数 − 1），客户端估算"><dt data-icon="activity">TPOT</dt><dd data-metric="perToken"></dd></div>
+                <div title="服务报告的输出 token 数 / 请求设置的上限"><dt data-icon="models">输出 / 上限</dt><dd data-metric="output"></dd></div>
+            </dl>
+        </div>
+        <div id="trial-current-details" hidden>
+            <button id="trial-details-toggle" class="icon-button" type="button" data-icon="info" aria-label="本次请求详情" title="本次请求详情" popovertarget="trial-details-popover"></button>
+            <section id="trial-details-popover" popover aria-labelledby="trial-details-title">
+                <h4 id="trial-details-title">本次请求详情</h4>
+                <dl class="detail-fields" id="trial-current-facts"></dl>
+            </section>
+        </div></div>
+        <div class="trial-answer">
+            <div class="sent-message"><b>你</b><p id="trial-sent"></p></div>
+            <h3 class="section-title" data-icon="models" id="trial-reply-name">模型回复</h3>
+            <p id="inference-error" role="alert"></p>
+            <pre id="inference-output" tabindex="0" role="region" aria-label="模型回复"></pre>
+            <p id="trial-limit-note" role="status"></p>
+        </div>
+    </div>
+    <div class="trial-exchange">
+        <form id="inference-form">
+            <textarea id="trial-prompt" aria-label="消息" name="prompt" rows="3" maxlength="2000" required placeholder="输入消息…"></textarea>
+            <button type="button" id="prompt-expand" class="quiet-button" data-icon="expand" aria-label="展开输入框" title="展开输入框" aria-haspopup="dialog"></button>
+            <span class="prompt-shortcuts">Enter 发送 · Shift+Enter 换行</span>
+            <button title="Enter 发送，Shift+Enter 换行" id="inference-submit" class="primary" type="submit" data-icon="send" disabled>发送</button>
+        </form>
+    </div>
+</section>
+</dialog>
+<dialog id="prompt-editor" aria-labelledby="prompt-editor-title">
+    <header><h3 id="prompt-editor-title">编辑消息</h3><button id="prompt-collapse" class="quiet-button" type="button">收起</button></header>
+</dialog>
+<section class="local-access" aria-labelledby="local-access-title" data-tab-pane="local">
+    <h2 class="section-title" id="local-access-title" data-icon="terminal">客户端接入</h2>
+    <p>将下列参数填入本机客户端的模型设置。</p>
+    <div class="local-model-row">
+        <label for="model-picker-trigger">模型</label>
+        <div class="model-picker">
+            <select id="local-model" hidden aria-label="所选模型"></select>
+            <button id="model-picker-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="model-picker-panel" disabled>暂无可用模型</button>
+            <div id="model-picker-panel" role="dialog" aria-label="选择模型" hidden>
+                <input id="model-picker-search" type="search" placeholder="搜索模型或连接" aria-label="搜索模型或连接" autocomplete="off">
+                <div id="model-picker-results"></div>
+            </div>
+        </div>
+        <button type="button" id="local-test" data-icon="play" aria-haspopup="dialog" disabled>测试模型</button>
+        <button type="button" id="local-setup" data-open-tab="models" hidden>配置模型</button>
+    </div>
+    <dl class="connection-rows">
+            <div><dt>API 地址</dt><dd><code id="local-api"></code></dd><dd><button class="icon-button" id="copy-address" data-icon="copy" aria-label="复制 API 地址" title="复制 API 地址"></button></dd></div>
+            <div><dt>模型 ID</dt><dd><code id="local-model-id"></code></dd><dd><button class="icon-button" id="copy-model" data-icon="copy" aria-label="复制模型 ID" title="复制模型 ID"></button></dd></div>
+            <div><dt>API Key</dt><dd><code id="local-api-key" aria-label="工作区密钥，已隐藏">••••••••</code></dd><dd class="local-key-actions"><button id="toggle-local-key" type="button" class="quiet-button icon-button" data-icon="eye" aria-label="显示 API Key" title="显示 API Key" aria-controls="local-api-key"></button><button class="icon-button" id="copy-key" data-icon="copy" aria-label="复制工作区密钥" title="复制工作区密钥"></button></dd></div>
+        </dl>
+</section>
 
-.brand-mark{font-family:var(--body);font-size:29px;color:#b65c43;margin-right:8px}header h1{font-family:var(--body);font-size:23px;letter-spacing:-.5px}header #connection{font-family:var(--body);font-size:12px;color:#586f63}main{box-sizing:border-box}input,select,button{max-width:100%;box-sizing:border-box}
-@media(max-width:600px){header{padding:18px;gap:15px}main{padding:18px}section{padding:18px}.grid{grid-template-columns:minmax(0,1fr)}nav button{padding:10px 12px;white-space:nowrap}}
-</style>
-<header><div><h1><span class="brand-mark" aria-hidden="true">✳</span> ModelCat</h1><small>本地订阅 · 模型渠道 · 收益</small></div><div id="connection">尚未连接</div></header><div id="notice" role="status"></div><main><nav id="seller-tabs" aria-label="节点管理"><button data-tab="overview" class="active">节点概览</button><button data-tab="tools">工具与模型</button><button data-tab="settings">绑定与设置</button><button data-tab="billing">收益与记录</button></nav>
-<section id="unlock"><h2>解锁节点</h2><form id="unlock-form"><input id="token" type="password" placeholder="本地管理密钥" required><button>解锁</button></form><p class="muted">使用终端的 channel-node open，或读取节点数据目录中的 control.token。</p></section>
-<div id="app" class="hidden"><div class="grid"><section><h2>服务状态</h2><div id="node-status"></div><button id="pause">暂停接单</button><button id="refresh">刷新</button></section><section><h2>Token 与请求</h2><div id="usage" class="row"></div><small>统计最近最多 1,000 条本地记录，缓存输入另列。账单以 GW 确认记录为准。</small></section><section><h2>网络流量</h2><div id="traffic"></div><small>GW 流量为本进程累计帧字节；上游流量为请求/响应正文字节，不含 TLS 和协议开销。</small></section></div>
-<section><h2>绑定中央 GW</h2><p id="binding">未绑定</p><input type="file" id="binding-file" accept="application/json"><button id="bind">导入绑定文件</button><p class="muted">绑定文件由管理员提供，包含节点身份与固定的网关公钥。绑定前暂停接单并等待在途请求完成。</p></section>
-<section><h2>订阅账号</h2><div class="row"><div><select id="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="kiro">Kiro</option></select><button id="import">从本机 CLI 导入</button><button id="oauth">OAuth 登录</button></div></div><p class="muted">导入会读取所选 CLI 的登录凭据，不读取工作区。共享刷新令牌可能影响原 CLI 登录；独立 OAuth 登录更适合持续服务。</p><div id="oauth-flow" class="hidden"><a id="oauth-link" target="_blank" rel="noopener">打开授权页面</a><p>远程浏览器无法回调时，粘贴最终跳转 URL 或授权码：</p><input id="oauth-code" placeholder="授权码 / 跳转 URL"><button id="submit-code">提交</button></div><details><summary>导入 Kiro Session JSON</summary><p class="muted">选择 Kiro 导出的会话文件（含 accessToken，可含 refreshToken、region、profileArn、clientId、clientSecret）。仅在本地加密保存。</p><input type="file" id="kiro-session" accept="application/json"><button id="import-kiro">导入 Kiro Session</button><p class="muted">Kiro 当前适配文本 Responses 请求；工具调用和图片会明确拒绝，未知用量进入 GW 核对。</p></details><div id="accounts" class="scroll"></div></section>
-<section><h2>模型与渠道报价</h2><p class="muted">按输入、输出每百万 Token 报价；保存配置后需提交至 GW 审核。首次接入需验证模型权限。</p><div><button id="discover-models">重新识别可用模型</button><label><input type="checkbox" id="select-all">全选</label></div><div id="discovered-models" class="scroll"></div><button id="add-selected">保存所选模型报价</button><button id="submit-selected">保存并提交所选模型审核</button><p class="muted">从账号实际支持的模型清单选择 ID，逐项填写 USD / 百万 Token 报价。审核通过后可恢复接单。</p><details><summary>手动添加模型 / 高级映射</summary><form id="offer-form"><input name="model" placeholder="对外模型 ID" required><select name="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="kiro">Kiro</option><option value="custom">已配置 API 上游</option></select><input name="upstream_model" placeholder="厂商模型 ID" required><input name="input_price_per_m" placeholder="输入单价 / M" required><input name="output_price_per_m" placeholder="输出单价 / M" required><button>添加 / 更新</button></form></details><div id="offers" class="scroll"></div><button id="submit-quotes">提交有效报价审核</button></section>
-<section><h2>出站代理与运行设置</h2><form id="settings"><label>并发上限 <input id="concurrency" type="number" min="1" max="32" value="2"></label><label>厂商出站代理 <input id="proxy" placeholder="auto / off / http://… / socks5://…"></label><button>保存</button></form><button id="test-proxy">测试厂商连接</button><p class="muted">厂商代理修改对新请求生效。GW 连接独立使用系统/环境网络设置。</p><details><summary>完整配置</summary><textarea id="config-json" spellcheck="false"></textarea><button id="save-json">校验并保存</button></details></section>
-<section><h2>请求记录</h2><div id="records" class="scroll"></div></section>
-<section><h2>GW 确认收益与账单</h2><button id="load-earnings">刷新账单</button><div id="earnings" class="scroll"></div><div id="confirmed" class="scroll"></div></section>
-<section><h2>本地模型 API</h2><p>地址：<code id="local-api"></code>。使用 channel-node api-key 获取独立的本地 API 密钥，支持 /v1/responses 与 /v1/messages。本机调用单独标记，不计入 GW 模型提供者应付。</p></section>
-</div></main><script>
+</div></main>
+<dialog id="request-detail" class="app-drawer" aria-labelledby="request-detail-title"><header><h2 id="request-detail-title" tabindex="-1" autofocus class="section-title" data-icon="activity">请求详情</h2><button id="detail-close" aria-label="关闭请求详情">关闭</button></header>
+<h3 id="detail-model"></h3><p id="detail-route"></p>
+<section id="detail-diagnosis" aria-labelledby="detail-diagnosis-title" hidden>
+    <h4 id="detail-diagnosis-title">请求路由</h4>
+        <div id="trace-path" class="trace-path">
+            <button type="button" id="trace-ingress" class="trace-node" data-open-tab="local"><span data-icon="terminal"></span><b id="trace-ingress-label">本地调用</b></button>
+            <button type="button" class="trace-edge" data-hop="ingress" aria-controls="detail-fields" aria-label="查看入口到模型路由的请求详情"></button>
+            <button type="button" class="trace-node" data-open-tab="network"><span data-icon="network"></span>模型路由</button>
+            <button type="button" class="trace-edge" data-hop="model" aria-controls="detail-fields" aria-label="查看模型路由到模型服务的请求详情"></button>
+            <button type="button" id="trace-model-settings" class="trace-node"><span data-icon="models"></span><strong id="trace-source">模型服务</strong></button>
+        </div>
+        <button id="trace-open-models" type="button" data-open-tab="models" hidden>模型来源</button>
+</section>
+<dl id="detail-fields" class="detail-fields" tabindex="-1"></dl>
+<button id="trace-billing" type="button" data-icon="billing" hidden>查看结算</button>
+<p id="detail-feedback" role="status"></p></dialog>
+<script src="/drawer.js"></script><script src="/request-history.js"></script><script src="/visuals.js"></script><script src="/connections.js"></script>
+<script>
 const $=s=>document.querySelector(s);let token=sessionStorage.getItem('node-token')||'',config=null,flow=null,discoveredSignature='';
-const fragment=new URLSearchParams(location.hash.slice(1));if(fragment.has('token')){token=fragment.get('token');sessionStorage.setItem('node-token',token);history.replaceState(null,'',location.pathname)}
-function notify(s){$('#notice').textContent=s;$('#notice').style.display='block';clearTimeout(notify.t);notify.t=setTimeout(()=>$('#notice').style.display='none',7000)}
-async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.status===401){$('#unlock').classList.remove('hidden');$('#app').classList.add('hidden');throw Error('本地管理密钥无效')}const v=await r.json();if(!r.ok)throw Error(v.error||'请求失败');return v}
+function updateInternetStatus() {
+    $('#internet-status').hidden = navigator.onLine !== false;
+}
+window.addEventListener('online', updateInternetStatus);
+window.addEventListener('offline', updateInternetStatus);
+updateInternetStatus();
+const pageParams = new URLSearchParams(location.search);
+const inDesktop = pageParams.get('desktop') === '1';
+const embedded = inDesktop && pageParams.get('embedded') === '1' && parent !== window;
+let reportedReady = false;
+let currentPage;
+function reportWorkspaceReady(ready = false) {
+    if (!embedded || reportedReady) return;
+    reportedReady = true;
+    let arrival;
+    if (pageParams.get('launch') === '1') {
+        pageParams.delete('launch');
+        history.replaceState(null, '', location.pathname + '?' + pageParams);
+        if (ready && currentPage === 'overview' && matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+            const core = $('.topology-panel .topology-core');
+            const {left, top, width, height} = core.getBoundingClientRect();
+            if (width && height) {
+                arrival = {left, top, width, height, borderColor: getComputedStyle(core).borderColor};
+                document.body.setAttribute('data-workspace-arriving', '');
+            }
+        }
+    }
+    parent.postMessage({type: 'workspace-ready', page: currentPage, arrival}, '*');
+}
+const fragment = new URLSearchParams(location.hash.slice(1));
+if (fragment.has('token')) {
+    token = fragment.get('token');
+    sessionStorage.setItem('node-token', token);
+    history.replaceState(null, '', location.pathname + location.search);
+}
+$('#unlock').hidden = Boolean(token);
+if (inDesktop) {
+    document.body.classList.add('desktop');
+    document.querySelectorAll('[data-host-link]').forEach(link => link.hidden = false);
+}
+if (embedded) {
+    document.body.classList.add('embedded');
+    document.addEventListener('contextmenu', event => {
+        const target = event.target;
+        if (target.closest('input, textarea, select, a[href]') || target.isContentEditable) return;
+        const selection = window.getSelection();
+        if (selection?.rangeCount && !selection.isCollapsed
+            && selection.containsNode(target, true)) return;
+        event.preventDefault();
+    });
+    $('[data-tab-pane="network"] a[data-host-link]').hidden = true;
+    $('.stop-workspace').addEventListener('click', event => {
+        event.preventDefault();
+        parent.postMessage({type: 'host', action: 'stop'}, '*');
+    });
+}
+const noticeTimers = new WeakMap();
+function notify(message, target = $('#notice')) {
+    clearTimeout(noticeTimers.get(target));
+    target.textContent = message;
+    noticeTimers.set(target, setTimeout(() => {
+        if (target.textContent === message) target.textContent = '';
+    }, 7000));
+}
+async function api(path, body, signal, readResponse) {
+    const r = await fetch(path, {
+        signal,
+        method: body ? 'POST' : 'GET',
+        headers: {Authorization: 'Bearer ' + token, ...(body ? {'Content-Type':'application/json'} : {})},
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (r.status === 401 && path === '/api/status') {
+        maskLocalKey();
+        $('#unlock').hidden = false;
+        $('#app').classList.add('hidden');
+        throw Error('本地管理密钥无效');
+    }
+    const requestId = r.headers.get('x-modelcat-request-id');
+    if (requestId && path === '/api/inference/test') window.modelcatConnections.selectRequest(requestId);
+    if (r.ok && readResponse) return readResponse(r);
+    const v = await r.json();
+    if (!r.ok) throw Object.assign(Error(v.error?.message || v.error || '请求失败（HTTP ' + r.status + '）'), {code: v.error?.code});
+    return v;
+}
 function table(id,cols,rows){const el=$(id);el.replaceChildren();const t=document.createElement('table'),head=t.createTHead().insertRow();for(const [title]of cols)head.append(Object.assign(document.createElement('th'),{textContent:title}));for(const row of rows||[]){const tr=t.insertRow();for(const [,get]of cols){const value=get(row),td=tr.insertCell();if(value instanceof Node)td.append(value);else td.textContent=value??'—'}}el.append(t);if(!rows?.length)el.append(Object.assign(document.createElement('p'),{textContent:'暂无记录',className:'muted'}))}
 function action(text,fn){const b=document.createElement('button');b.textContent=text;b.onclick=async()=>{b.disabled=true;try{await fn();await refresh()}catch(e){notify(e.message)}finally{b.disabled=false}};return b}
-const bytes=n=>{if(n>1e6)return(n/1e6).toFixed(2)+' MB';return(n/1e3).toFixed(1)+' KB'};const money=n=>(Number(n||0)/1e9).toFixed(3);
-async function refresh(){const s=await api('/api/status');config=s.config;$('#unlock').classList.add('hidden');$('#app').classList.remove('hidden');$('#connection').textContent=s.runtime.connection||'离线';$('#node-status').textContent=(config.paused?'已暂停':'接单开启')+' · 在途 '+s.runtime.active+' · '+s.available_models.length+' 个模型可服务'+(s.runtime.last_error?' · '+s.runtime.last_error:'');$('#pause').textContent=config.paused?'恢复接单':'暂停接单';$('#binding').textContent=s.binding?s.binding.gateway_url+' · '+s.binding.node_id+' · '+s.binding.currency:'尚未绑定';
-let input=0,output=0,cache=0,upIn=0,upOut=0;for(const r of s.records){input+=r.input_tokens;output+=r.output_tokens;cache+=r.cache_tokens;upIn+=r.upstream_bytes_in;upOut+=r.upstream_bytes_out}$('#usage').replaceChildren();for(const [label,value]of [['请求',s.records.length],['输入',input],['输出',output],['缓存输入',cache]]){const d=document.createElement('div');d.append(Object.assign(document.createElement('div'),{className:'metric',textContent:Number(value).toLocaleString()}),Object.assign(document.createElement('small'),{textContent:label}));$('#usage').append(d)}$('#traffic').textContent='GW 接收 '+bytes(s.runtime.gw_bytes_in)+' / 发送 '+bytes(s.runtime.gw_bytes_out)+'；厂商接收 '+bytes(upIn)+' / 发送 '+bytes(upOut);
-renderDiscovered(s.accounts);table('#accounts',[['账号',r=>r.label],['平台',r=>r.provider],['来源',r=>r.origin],['状态',r=>r.last_error||(r.enabled?'已启用':'已停用')],['过期',r=>r.expires_at?new Date(r.expires_at*1000).toLocaleString():'未知'],['操作',r=>action(r.enabled?'停用':'启用',()=>api('/api/accounts/state',{provider:r.provider,id:r.id,enabled:!r.enabled}))]],s.accounts);
-table('#offers',[['模型',r=>r.model],['厂商',r=>r.provider],['输入 / M',r=>r.input_price_per_m],['输出 / M',r=>r.output_price_per_m],['操作',r=>{const span=document.createElement('span');span.append(action(r.enabled?'停用':'启用',async()=>{const next=structuredClone(config);next.offers.find(x=>x.model===r.model).enabled=!r.enabled;await api('/api/config',next)}));if(r.enabled)span.append(action('试调用',async()=>{await api('/api/probe',{model:r.model});notify('试调用成功，已消耗本机账号的少量额度')}));return span;}]],config.offers);
-table('#records',[['请求',r=>r.id],['模型',r=>r.model],['状态',r=>r.status],['输入',r=>r.input_tokens],['输出',r=>r.output_tokens],['时间',r=>new Date(r.at*1000).toLocaleString()]],s.records.slice().reverse());
-if(document.activeElement!==$('#config-json'))$('#config-json').value=JSON.stringify(config,null,2);if(document.activeElement!==$('#proxy'))$('#proxy').value=config.upstream_proxy;if(document.activeElement!==$('#concurrency'))$('#concurrency').value=config.concurrency;$('#local-api').textContent=location.origin+'/v1';}
-async function perform(fn){try{await fn();notify('操作完成');await refresh()}catch(e){notify(e.message)}}
-$('#unlock-form').onsubmit=e=>{e.preventDefault();token=$('#token').value;sessionStorage.setItem('node-token',token);refresh().catch(e=>notify(e.message))};$('#refresh').onclick=()=>refresh().catch(e=>notify(e.message));$('#pause').onclick=()=>perform(()=>api('/api/pause',{paused:!config.paused}));$('#import').onclick=()=>perform(()=>api('/api/import',{provider:$('#provider').value}));
-$('#bind').onclick=()=>perform(async()=>{const f=$('#binding-file').files[0];if(!f)throw Error('请选择绑定文件');await api('/api/bind',JSON.parse(await f.text()))});
-$('#offer-form').onsubmit=e=>{e.preventDefault();perform(async()=>{const offer={...Object.fromEntries(new FormData(e.target)),enabled:true},next=structuredClone(config),i=next.offers.findIndex(o=>o.model===offer.model);if(i>=0)next.offers[i]=offer;else next.offers.push(offer);await api('/api/config',next)})};$('#submit-quotes').onclick=()=>perform(()=>api('/api/quotes/submit',{}));
-$('#settings').onsubmit=e=>{e.preventDefault();perform(()=>api('/api/config',{...config,concurrency:Number($('#concurrency').value),upstream_proxy:$('#proxy').value}))};$('#save-json').onclick=()=>perform(()=>api('/api/config',JSON.parse($('#config-json').value)));$('#test-proxy').onclick=async()=>{try{const r=await api('/api/proxy/test',{});notify('连接成功 · HTTP '+r.http_status+' · '+r.elapsed_ms+' ms')}catch(e){notify(e.message)}};
+const money = (amount, currency, scale = 1e9) => {
+    if (!Number.isFinite(amount)) return '—';
+    const decimals = scale === 1e9 ? 9 : 6;
+    return (amount / scale).toFixed(decimals).replace(/\.?0+$/, '') + (currency ? ' ' + currency : '');
+};
+const gatewayNames={unbound:'未绑定',connecting:'连接中',reconnecting:'重连中',online:'已连接',drained:'已停止'};
+let runtimeHealth={}, nodeSnapshot=null;
+let updatingOrders = false;
+let orderReviews;
+function reviewedModels(binding) {
+    const key = bindingIdentity(binding);
+    if (!orderReviews || orderReviews.key !== key) {
+        window.modelcatVisuals.setPanelOpen($('#order-model-list-action'), false);
+        orderReviews = {key, approved: null, pending: null, checked: 0, failed: false};
+    }
+    return orderReviews;
+}
+function updateOrderCount(s) {
+    const reviews = reviewedModels(s?.binding);
+    const eligible = s?.binding?.node_id && !s.config.paused && s.runtime.connection === 'online' && s.available_models.length;
+    if (eligible && (currentPage === 'overview' || currentPage === 'seller') && !document.hidden &&
+        !reviews.pending && Date.now() - reviews.checked > 30000) {
+        reviews.pending = readGatewayAccount().then(account => {
+            cacheOrderApprovals(reviews, account, s.binding.node_id);
+        }).catch(() => {
+            reviews.approved = null;
+            reviews.failed = true;
+        }).finally(() => {
+            reviews.checked = Date.now();
+            reviews.pending = null;
+            if (reviews === orderReviews) renderWorkspaceRuntime();
+        });
+    }
+    const models = !s ? null : !eligible ? [] : reviews.approved &&
+        [...new Set(s.available_models.filter(model => reviews.approved.has(model)))].sort();
+    const count = $('#order-count');
+    const list = $('#order-models');
+    const action = $('#order-model-list-action');
+    action.hidden = !models?.length;
+    if (action.hidden) window.modelcatVisuals.setPanelOpen(action, false);
+    const label = models ? models.length + ' 个模型可接单' : '接单资格待核对';
+    count.hidden = !action.hidden;
+    if (count.textContent !== label) count.textContent = label;
+    if (!action.hidden) {
+        action.dataset.panelLabel = label;
+        action.dataset.panelClose = label;
+        if (action.textContent !== label) action.textContent = label;
+    }
+    const entries = (models || []).map(id => {
+        const offer = s.config.offers.find(item => item.model === id);
+        const display = offer ? quoteModelLabel(offer) : id;
+        return {name: display.textContent ?? display, title: display.title || id};
+    });
+    const names = JSON.stringify(entries);
+    if (list.dataset.names !== names) {
+        list.replaceChildren(...entries.map(({name, title}) =>
+            Object.assign(document.createElement('li'), {textContent: name, title})));
+        list.dataset.names = names;
+    }
+    return models;
+}
+function cacheOrderApprovals(reviews, account, nodeId) {
+    if (!Array.isArray(account.quotes)) throw Error('未能读取平台报价');
+    reviews.approved = new Set(account.quotes.filter(q => q.node_id === nodeId && q.enabled && q.approved).map(q => q.model));
+    reviews.failed = false;
+    reviews.checked = Date.now();
+}
+let sellerView = 'catalog';
+let savedModelIds = [];
+let submittingQuotes = false;
+$('#start-quote').onclick = () => { showSellerView('catalog'); $('#quote-search').focus(); };
+function showSellerView(view) {
+    sellerView = view;
+    for (const button of document.querySelectorAll('[data-seller-view]')) {
+        const active = button.dataset.sellerView === view;
+        button.setAttribute('aria-pressed', String(active));
+        document.getElementById(button.getAttribute('aria-controls')).hidden = !active;
+    }
+    if ((view === 'review' || view === 'saved') && nodeSnapshot?.binding) void loadGatewayAccount('quotes');
+}
+document.querySelectorAll('[data-seller-view]').forEach(button => {
+    button.onclick = () => showSellerView(button.dataset.sellerView);
+});
+const statsCache = new Map();
+let statsPending;
+let statsKey;
+let statsOwner;
+let activeRequests = null;
+let subscriberActive = false;
+let activityPending = false;
+let billingRequest = null, billingOrigin = 'overview';
+let earningsRefresh = null;
+let displayedBillingBinding;
+let settingsDirty=false, settingsSaving=false;
+let configEditBase = null;
+let configEditSaving = false;
+window.addEventListener('modelcat-runtime',event=>{
+    runtimeHealth=event.detail;
+    renderWorkspaceRuntime();
+});
+function healthText(value,up,down){return value==null?'未知':value?up:down}
+function renderWorkspaceRuntime(){
+    const s=nodeSnapshot;
+    const gateway=s?(gatewayNames[s.runtime.connection]||'离线'):'未知';
+    let seller='未知';
+    if(s){
+        if(s.config.paused) seller='已暂停';
+        else if(s.runtime.connection!=='online') seller=s.binding?'等待网关':'未绑定';
+        else seller=s.available_models.length?'可接单':'无可用模型';
+    }
+    const visuals = window.modelcatVisuals;
+    const vmRunning = runtimeHealth.vm_running ?? (!s ? null : s.vm_workspace);
+    const workspaceState = vmRunning == null ? 'idle' : vmRunning ? 'online' : 'offline';
+    const gatewayState = {online:'online', connecting:'pending', reconnecting:'pending', drained:'offline'}[s?.runtime.connection] || 'idle';
+    const nodeRunning = runtimeHealth.node_running === false ? false : s ? true : null;
+    const nodeLabel = runtimeHealth.node_running && !s ? '管理接口无响应' : healthText(nodeRunning, '运行中', '已停止');
+    const active = s ? activeRequests ?? s.runtime.active : 0;
+    const requestState = !nodeRunning || !s || activeRequests == null ? '—' : active ? active + ' 个进行中' : '空闲';
+    $('#runtime-requests').textContent = requestState;
+    const localIds = new Set(s?.ollama_models || []);
+    for (const connection of s?.connections || []) {
+        if (connection.protocol === 'ollama') {
+            for (const model of connection.models) localIds.add(model.id);
+        }
+    }
+    // Published model aliases can also point at an Ollama model.
+    for (const offer of s?.config.offers || []) {
+        if (offer.provider === 'custom' && localIds.has(offer.upstream_model)) localIds.add(offer.model);
+    }
+    visuals.topologyState({
+        workspace: workspaceState, active, agentRunning: runtimeHealth.agent_running === true, subscriberActive, gateway: gatewayState, gatewayUrl: s?.binding?.gateway_url,
+        hasCloud: s?.local_models.some(id => !localIds.has(id)),
+        hasLocal: s?.local_models.some(id => localIds.has(id))
+    });
+    visuals.stateBadge($('#topology-status'), workspaceState, healthText(vmRunning, '运行中', '已停止'));
+    visuals.stateBadge($('#connection'), gatewayState, '网关' + gateway);
+    const hasModel = Boolean(s?.local_models.length);
+    const next = $('#workspace-next');
+    const hasConnections = Boolean(s?.connections?.length);
+    const nextLabel = hasModel ? '试用模型' : hasConnections ? '检查连接' : '添加模型连接';
+    if (next.dataset.label !== nextLabel) {
+        next.dataset.label = nextLabel;
+        next.replaceChildren(nextLabel);
+        visuals.setIcon(next, hasModel ? 'play' : hasConnections ? 'refresh' : 'plus');
+    }
+    next.disabled = !s;
+    $('#workspace-models').hidden = !hasModel;
+    for (const [element, state, label] of [
+        ['#runtime-node', nodeRunning ? 'online' : 'idle', nodeLabel],
+        ['#runtime-gateway', gatewayState, gateway]
+    ]) {
+        visuals.stateBadge($(element), state, label);
+    }
+    const issue=runtimeHealth.issue || (runtimeHealth.vm_running === false ? '工作区虚拟机已停止' : runtimeHealth.docker_ready === false ? 'Docker 引擎未就绪' : !s && config ? '无法读取节点状态' : '');
+    if($('#runtime-issue').textContent!==issue)$('#runtime-issue').textContent=issue;
+    const unquoted = s ? quoteCandidates(s).filter(row =>
+        !s.config.offers.some(offer => offer.provider === row.provider && offer.upstream_model === row.upstreamId)
+    ).length : 0;
+    const quoteLink = $('#open-quote');
+    quoteLink.hidden = !unquoted || currentPage === 'seller';
+    const quoteLabel = unquoted + ' 个模型可报价 ›';
+    if (quoteLink.textContent !== quoteLabel) quoteLink.textContent = quoteLabel;
+
+    const orderModels = updateOrderCount(s);
+    let summary = '正在读取接单状态';
+    if (s) {
+        if (s.config.paused) summary = '已暂停接收新请求';
+        else if (seller === '未绑定') summary = '绑定平台后即可提交报价';
+        else if (seller === '等待网关') {
+            summary = {connecting:'正在连接平台网关', reconnecting:'网关连接中断，将自动重试', drained:'网关连接已停止'}[s.runtime.connection] || '等待网关就绪';
+        }
+        else if (seller === '可接单') {
+            if (!orderModels) summary = orderReviews.failed ? '暂时无法读取平台审核状态' : '正在核对平台审核状态';
+            else summary = orderModels.length ? '可接收平台新请求' : '暂无已审核通过且可用的模型';
+        }
+        else if (!s.config.offers.length && unquoted) summary = '可直接按参考价提交审核，也可以自行填写报价。';
+        else summary = '暂无可接单的模型';
+        if (s.runtime.active) summary += ' · ' + s.runtime.active + ' 个请求处理中';
+        if (s.runtime.last_error) summary += ' · ' + s.runtime.last_error;
+    }
+    const statusLine = $('#node-status');
+    if (statusLine.textContent !== summary) statusLine.textContent = summary;
+    const rt = s?.runtime;
+    let timing = '';
+    const now = rt?.now ?? Math.floor(Date.now() / 1000);
+    if (!s?.config.paused && rt?.connection === 'connecting' && rt.connecting_since) {
+        timing = '已等待 ' + Math.max(0, now - rt.connecting_since) + ' 秒';
+    } else if (!s?.config.paused && rt?.connection === 'reconnecting' && rt.retry_at) {
+        timing = Math.max(0, rt.retry_at - now) + ' 秒后重试';
+    }
+    if ($('#gateway-time').textContent !== timing) $('#gateway-time').textContent = timing;
+    $('#pause').disabled = !s || updatingOrders;
+    if (!updatingOrders) {
+        $('#pause').checked = Boolean(s && !s.config.paused);
+        const label = $('#order-action');
+        const state = !s ? '读取中' : s.config.paused ? '已暂停' : '已开启';
+        if (label.textContent !== state) label.textContent = state;
+        label.closest('label').title = !s ? '' : s.config.paused ? '开启接单' : '暂停接单';
+    }
+}
+async function refresh(){
+const s=await api('/api/status',undefined,AbortSignal.timeout(8000)).catch(error=>{
+    nodeSnapshot=null;
+    activeRequests = null;
+    subscriberActive = false;
+    if(!config)$('#unlock').hidden=false;
+    if(config)renderWorkspaceRuntime();
+    reportWorkspaceReady();
+    throw error;
+});
+if (!config || config.upstream_proxy !== s.config.upstream_proxy ||
+    config.proxy_mode !== s.config.proxy_mode || config.claude_api_direct !== s.config.claude_api_direct) {
+    resetProxyChecks(s.config);
+}
+config=s.config;
+nodeSnapshot=s;
+const previous = $('.previous-connections');
+previous.hidden = !s.oauth_preview && !s.ollama_models.length && !s.claude_api;
+$('#legacy-heading').textContent = s.oauth_preview ? '旧版连接与模拟授权' : '旧版连接管理';
+previous.closest('section').classList.toggle('hidden', previous.hidden);
+$('#claude-oauth-preview').classList.toggle('hidden',!s.oauth_preview);
+$('#unlock').hidden=true;
+$('#app').classList.remove('hidden');
+$('#workspace-runtime').classList.toggle('hidden',!s.vm_workspace);
+renderWorkspaceRuntime();
+reportWorkspaceReady(true);
+window.modelcatVisuals.stateBadge($('#step-binding'), s.binding ? 'online' : 'idle', s.binding ? '已绑定' : '待绑定');
+const nodeId = s.binding?.node_id || '';
+if ($('#step-quotes').dataset.node !== nodeId) {
+    $('#step-quotes').dataset.node = nodeId;
+    $('#quote-reviews').replaceChildren();
+    $('#step-quotes').textContent = nodeId ? '可查询平台审核记录' : '绑定节点后可查看审核记录';
+    if (currentPage === 'seller' && sellerView === 'review' && nodeId) void loadGatewayAccount('quotes');
+}
+$('#binding').textContent = s.binding?.gateway_url || '尚未绑定';
+$('#seller-node-id').textContent = s.binding?.node_id || '—';
+$('#seller-currency').textContent = s.binding?.currency || '—';
+const bindingEditor = $('#binding-editor');
+const identity = bindingIdentity(s.binding);
+if (gatewayAccount && gatewayAccount.binding !== identity) gatewayAccount = undefined;
+if (bindingEditor.dataset.binding !== identity) {
+    const firstSnapshot = bindingEditor.dataset.binding === undefined;
+    bindingEditor.dataset.binding = identity;
+    if (firstSnapshot && !s.binding) {
+        sellerView = 'node';
+        if (currentPage === 'seller') showSellerView(sellerView);
+    }
+    if (!firstSnapshot && s.binding && sellerView === 'node' && !bindingEditor.hasAttribute('data-bound')) {
+        sellerView = 'catalog';
+        if (currentPage === 'seller') showSellerView(sellerView);
+    }
+    bindingEditor.toggleAttribute('data-bound', Boolean(s.binding));
+    clearBindingSelection();
+    $('#choose-binding span').textContent = s.binding ? '更换绑定文件…' : '选择绑定文件…';
+    $('#bind span').textContent = s.binding ? '确认更换' : '确认绑定';
+}
+renderBindingSelection();
+updateBillingOnEntry();
+if (billingRequest && billingRequest.binding !== bindingIdentity(s.binding)) {
+    renderRequestSettlement(null, '节点绑定已变更，请从线路重新查看结算。');
+}
+window.modelcatVisuals.renderCharts(s);
+for(const control of [$('#provider').closest('section'),$('#manual-offer'),$('#discover-models')]){
+    control.classList.toggle('hidden',s.vm_workspace);
+}
+const isOllamaOffer=offer=>offer.provider==='custom'&&s.ollama_models.includes(offer.upstream_model);
+const isClaudeApiOffer=offer=>offer.provider==='claude'&&offer.upstream_model.startsWith('claude-api/');
+const connectionFor=id=>(s.connections || []).find(connection=>connection.models.some(model=>model.id===id));
+renderDiscovered(s);
+renderReferencePrices(s.reference_prices);
+renderQuoteActions();
+table('#accounts',[['账号',r=>r.label],['平台',r=>r.provider],['来源',r=>r.origin],['状态',r=>r.last_error||(r.enabled?'已启用':'已停用')],['过期',r=>r.expires_at?new Date(r.expires_at*1000).toLocaleString():'未知'],['操作',r=>action(r.enabled?'停用':'启用',()=>api('/api/accounts/state',{provider:r.provider,id:r.id,enabled:!r.enabled}))]],s.accounts);
+const savedOffers = config.offers.filter(offer=>!s.vm_workspace||isOllamaOffer(offer)||isClaudeApiOffer(offer)||offer.upstream_model.startsWith('connection/'));
+savedModelIds = savedOffers.filter(offer => offer.enabled).map(offer => offer.model);
+$('#saved-count').textContent = savedOffers.length;
+$('#saved-empty').hidden = savedOffers.length > 0;
+$('#offers').hidden = !savedOffers.length;
+$('#submit-quotes').hidden = !savedOffers.length;
+renderSavedSubmit();
+table('#offers',[['模型',quoteModelLabel],['来源',r=>isOllamaOffer(r)?'Ollama':isClaudeApiOffer(r)?'Claude API Key':connectionFor(r.upstream_model)?.label || r.provider],['输入（美元 / 百万 Token）',r=>Number(r.input_price_per_m).toFixed(2)],['输出（美元 / 百万 Token）',r=>Number(r.output_price_per_m).toFixed(2)],['本节点启用',r=>{
+    const toggle = action('', async () => {
+        const next=structuredClone(config);
+        next.offers.find(x=>x.model===r.model).enabled=!r.enabled;
+        await api('/api/config',next);
+    });
+    toggle.title = r.enabled ? '在本节点停用这条报价' : '在本节点启用这条报价，平台审核通过且模型可用时可接单';
+    toggle.className = 'quote-switch';
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', String(r.enabled));
+    const label = quoteModelLabel(r);
+    toggle.setAttribute('aria-label', '启用本节点报价：' + (label.textContent ?? label));
+    return toggle;
+}]],savedOffers);
+if (configEditBase === null && !configEditSaving) $('#config-json').value = JSON.stringify(config, null, 2);
+if(!settingsDirty&&!settingsSaving){
+    const proxy = config.upstream_proxy || 'auto';
+    const manual = !['auto','off'].includes(proxy);
+    const choice = manual ? 'manual' : proxy;
+    document.querySelector('#proxy-choice input[value="'+choice+'"]').checked = true;
+    $('#proxy').value = manual ? proxy : '';
+    $('#concurrency').value=config.concurrency;
+    document.querySelector('input[name="proxy-mode"][value="'+config.proxy_mode+'"]').checked=true;
+    $('#claude-api-direct').checked=config.claude_api_direct;
+}
+renderProxyMode();
+window.modelcatConnections.sync(s.connections || [], s.records);
+renderLocalModels(s.local_models, s.local_aliases);
+renderClaudeSource(s.claude_api);
+const registeredModels = s.ollama_models.length;
+for (const id of ['ollama-state', 'source-ollama']) {
+    window.modelcatVisuals.stateBadge(document.getElementById(id), registeredModels ? 'online' : 'idle',
+        registeredModels ? registeredModels + ' 个已登记' : '待接入');
+}
+
+}
+function renderProxyMode(){
+    const global=document.querySelector('input[name="proxy-mode"]:checked').value==='global';
+    const manual = $('#proxy-choice input:checked').value === 'manual';
+    $('#proxy-address-row').hidden = !manual;
+    $('#proxy').required = manual;
+    $('#proxy-modes').hidden = !nodeSnapshot?.vm_workspace || !manual;
+    const choice = $('#proxy-choice input:checked').value;
+    $('#claude-direct-rule').hidden = !nodeSnapshot?.vm_workspace || global || choice === 'off';
+    $('#proxy-hint').textContent = {auto:'跟随工作区检测到的代理。',off:'工作区直接访问上游服务。',manual:'通过指定的 HTTP 或 SOCKS 代理连接。'}[choice];
+    const limit = $('#concurrency');
+    $('#concurrency-stepper [data-step="-1"]').disabled = limit.valueAsNumber <= Number(limit.min);
+    $('#concurrency-stepper [data-step="1"]').disabled = limit.valueAsNumber >= Number(limit.max);
+    $('#settings button.primary').disabled = settingsSaving || !settingsDirty;
+}
+function renderClaudeSource(source){
+    const online = source?.models && !source.paused && !source.error;
+    window.modelcatVisuals.stateBadge($('#source-claude'), online ? 'online' : source?.paused ? 'paused' : 'idle',
+        online ? source.models.length + ' 个可用' : source?.paused ? '访问暂停' : source?.error ? '连接异常' : '待接入');
+    $('#claude-source-status').textContent=source?.error||(source?.paused
+        ?'云端访问已暂停。请检查工作区出口后重新检测。'
+        :source?.models?'已连接 · '+source.models.length+' 个模型'+(source.base_url?' · '+source.base_url+'（仅本地调用）':source.workspace_id?' · '+source.workspace_id:''):'未连接');
+    $('#claude-source-recheck').classList.toggle('hidden',!source?.models);
+    $('#claude-source-disconnect').classList.toggle('hidden',!source?.models);
+}
+let previewPolling;
+const previewStatus=$('#preview-status'), previewLink=$('#preview-browser'), previewRefresh=$('#preview-refresh');
+async function pollPreview(){
+    try{
+        const result=await api('/api/claude-oauth-preview');
+        if(result.status==='pending')return;
+        clearInterval(previewPolling);
+        previewLink.classList.add('hidden');
+        previewRefresh.classList.toggle('hidden',result.status!=='connected');
+        previewStatus.textContent={connected:'模拟账号已连接。',paused:'模拟授权已暂停。恢复测试代理后可重新发起。',idle:'模拟授权已过期。'}[result.status]||'';
+    }catch(error){clearInterval(previewPolling);previewStatus.textContent=error.message}
+}
+$('#preview-authorize').onclick=async event=>{
+    const button=event.currentTarget;
+    clearInterval(previewPolling);
+    previewLink.classList.add('hidden');
+    previewRefresh.classList.add('hidden');
+    button.disabled=true;
+    try{
+        const result=await api('/api/claude-oauth-preview',{});
+        const url=new URL(result.url);
+        if(url.origin!=='http://claude-oauth.fixture.invalid'||url.pathname!=='/authorize')throw Error('模拟授权链接无效。');
+        previewLink.href=url.href;
+        previewLink.classList.remove('hidden');
+        previewStatus.textContent='等待浏览器确认。';
+        previewPolling=setInterval(pollPreview,1000);
+    }catch(error){previewStatus.textContent=error.message}
+    finally{button.disabled=false}
+};
+previewRefresh.onclick=async()=>{
+    previewRefresh.disabled=true;
+    try{
+        await api('/api/claude-oauth-preview/refresh',{});
+        previewStatus.textContent='模拟令牌已刷新。';
+    }catch(error){previewStatus.textContent=error.message}
+    finally{previewRefresh.disabled=false}
+};
+$('#claude-source-form').onsubmit=async event=>{
+    event.preventDefault();
+    const button=event.submitter, field=$('#claude-source-key');
+    button.disabled=true;
+    try{
+        const result=await api('/api/claude-key',{
+            key:field.value,
+            workspace_id:$('#claude-workspace-id').value.trim()||null,
+            base_url:$('#claude-source-url').value.trim()||null
+        });
+        field.value='';
+        await refresh();
+        $('#local-model').value=result.models[0];
+        window.modelcatConnections.updateTrialModel();
+        notify('Claude 已连接');
+    }catch(e){notify(e.message)}finally{button.disabled=false}
+};
+$('#claude-source-disconnect').onclick=async event=>{
+    const button=event.currentTarget;
+    button.disabled=true;
+    try{await api('/api/claude-key/disconnect',{});await refresh();notify('Claude API Key 已移除')}
+    catch(e){notify(e.message)}finally{button.disabled=false}
+};
+$('#claude-source-recheck').onclick=async event=>{
+    const button=event.currentTarget;
+    button.disabled=true;
+    try{
+        await api('/api/claude-key/recheck',{});
+        notify('Claude 连接正常');
+    }catch(e){notify(e.message)}
+    finally{
+        try{await refresh()}catch(e){notify(e.message)}
+        button.disabled=false;
+    }
+};
+const lastLocalModelKey = 'modelcat.local.lastModel';
+$('#local-model').addEventListener('change', event => {
+    const id = event.target.value;
+    if (id) {
+        try { localStorage.setItem(lastLocalModelKey, id); } catch { /* Storage may be unavailable. */ }
+    }
+});
+function renderLocalModels(models, aliases = {}){
+    const labels = models.map(model => window.modelcatConnections.choice(model)?.label || model);
+    const list=$('#local-model'), selected=list.value;
+    const choices = models.length ? models.map((id, index) => [id, labels[index]]) : [['', '暂无可用模型']];
+    if (choices.length !== list.options.length ||
+        choices.some(([value, label], index) => value !== list.options[index].value || label !== list.options[index].label)) {
+        list.replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
+        if (models.includes(selected)) {
+            list.value = selected;
+        } else {
+            let saved;
+            try { saved = localStorage.getItem(lastLocalModelKey); } catch { /* Keep the default selection. */ }
+            if (models.includes(saved)) list.value = saved;
+        }
+        window.modelcatConnections.refreshPicker();
+    }
+    const publicIds = new Map(Object.entries(aliases).map(([name, route]) => [route, name]));
+    for (const option of list.options) option.dataset.clientId = publicIds.get(option.value) || option.value;
+    window.modelcatConnections.updateTrialModel();
+}
+$('#local-api').textContent=location.origin;
+const copyTimers = new WeakMap();
+async function copyAccessValue(button, write) {
+    const label = button.getAttribute('aria-label');
+    try {
+        await write();
+        clearTimeout(copyTimers.get(button));
+        window.modelcatVisuals.setIcon(button, 'check');
+        button.title = '已复制';
+        notify('已复制' + label.slice(2));
+        copyTimers.set(button, setTimeout(() => {
+            window.modelcatVisuals.setIcon(button, 'copy');
+            button.title = label;
+        }, 1500));
+    } catch (error) { notify('复制失败：' + error.message); }
+}
+$('#copy-address').onclick = event => copyAccessValue(event.currentTarget, () => navigator.clipboard.writeText(location.origin));
+$('#copy-model').onclick = event => copyAccessValue(event.currentTarget, () => navigator.clipboard.writeText($('#local-model-id').textContent));
+const keyValue = $('#local-api-key');
+const keyButton = $('#toggle-local-key');
+let keyRequest;
+function maskLocalKey() {
+    keyRequest?.abort();
+    keyRequest = null;
+    keyValue.textContent = '••••••••';
+    keyValue.setAttribute('aria-label', '工作区密钥，已隐藏');
+    keyButton.disabled = false;
+    keyButton.title = '显示 API Key';
+    keyButton.setAttribute('aria-label', keyButton.title);
+    window.modelcatVisuals.setIcon(keyButton, 'eye');
+}
+keyButton.onclick = async () => {
+    if (!keyValue.hasAttribute('aria-label')) {
+        maskLocalKey();
+        return;
+    }
+    const request = new AbortController();
+    keyRequest = request;
+    keyButton.disabled = true;
+    try {
+        const {key} = await api('/api/local-key', undefined, request.signal);
+        if (request.signal.aborted) return;
+        keyValue.textContent = key;
+        keyValue.removeAttribute('aria-label');
+        keyButton.title = '隐藏 API Key';
+        keyButton.setAttribute('aria-label', keyButton.title);
+        window.modelcatVisuals.setIcon(keyButton, 'eyeOff');
+    } catch (error) {
+        if (!request.signal.aborted) notify('读取 API Key 失败：' + error.message);
+    } finally {
+        if (keyRequest === request) {
+            keyRequest = null;
+            keyButton.disabled = false;
+        }
+    }
+};
+window.addEventListener('pagehide', maskLocalKey);
+$('#copy-key').onclick = event => copyAccessValue(event.currentTarget, () => {
+    const key = api('/api/local-key').then(result => new Blob([result.key], {type:'text/plain'}));
+    return navigator.clipboard.write([new ClipboardItem({'text/plain':key})]);
+});
+let detectedOllamaOrigin='';
+$('#ollama-origin').oninput=()=>{detectedOllamaOrigin='';$('#ollama-result').classList.add('hidden')};
+$('#ollama-form').onsubmit=async event=>{
+    event.preventDefault();
+    const button=event.submitter, origin=$('#ollama-origin').value;
+    button.disabled=true;
+    try{
+        const {models}=await api('/api/ollama/discover',{origin});
+        if($('#ollama-origin').value!==origin)return;
+        detectedOllamaOrigin=origin;
+        $('#ollama-model').replaceChildren(...models.map(model=>new Option(model,model)));
+        $('#ollama-result').classList.toggle('hidden',models.length===0);
+        notify(models.length?'Ollama 连接成功':'已连接，Ollama 暂无模型');
+    }catch(e){
+        notify(e.message === 'the workspace cannot reach Ollama at this address'
+            ? '工作区无法访问此 Ollama 地址。请检查 Ollama 是否已启动，再修改地址重试。'
+            : e.message);
+    }finally{button.disabled=false}
+};
+$('#ollama-register').onclick=async event=>{
+    const button=event.currentTarget;
+    const model=$('#ollama-model').value;
+    if(!detectedOllamaOrigin||!model)return;
+    button.disabled=true;
+    try{
+        const {model_id}=await api('/api/ollama/register',{origin:detectedOllamaOrigin,model});
+        await refresh();
+        $('#local-model').value=model_id;
+        window.modelcatConnections.updateTrialModel();
+        notify('已登记 '+model);
+    }catch(e){notify(e.message)}finally{button.disabled=false}
+};
+async function perform(fn) {
+    try {
+        const message = await fn();
+        if (typeof message === 'string' && message) notify(message);
+        await refresh();
+    } catch (error) {
+        notify(error.message);
+    }
+}
+function quoteModelLabel(quote) {
+    for (const connection of nodeSnapshot?.connections || []) {
+        const source = connection.models.find(model => model.id === quote.upstream_model);
+        if (source && quote.model === source.name.slice(0,100)+'-'+connection.id.slice(0,8)) {
+            const label = document.createElement('span');
+            label.textContent = source.name;
+            label.title = connection.label + ' · ' + quote.model;
+            return label;
+        }
+    }
+    return quote.model;
+}
+function renderSavedSubmit() {
+    const button = $('#submit-quotes');
+    const binding = nodeSnapshot?.binding;
+    const known = gatewayAccount?.binding === bindingIdentity(binding) ? gatewayAccount?.account?.quotes : null;
+    let needsReview = false;
+    let waiting = false;
+    for (const id of savedModelIds) {
+        const offer = config.offers.find(item => item.model === id);
+        const active = (known || []).filter(q => q.enabled && q.node_id === binding?.node_id && q.model === id);
+        const matches = q => q.currency === binding.currency && q.provider === offer.provider &&
+            q.upstream_model === offer.upstream_model &&
+            q.input_micros_per_m === Math.round(Number(offer.input_price_per_m)*1e6) &&
+            q.output_micros_per_m === Math.round(Number(offer.output_price_per_m)*1e6);
+        if (active.some(q => !q.approved && !matches(q))) waiting = true;
+        else if (!active.some(matches)) needsReview = true;
+    }
+    if (button.getAttribute('aria-busy') === 'true') return;
+    const allHandled = savedModelIds.length > 0 && !needsReview;
+    button.querySelector('span').textContent = allHandled ? (waiting ? '等待已有报价审核' : '已提交审核') : '提交审核';
+    window.modelcatVisuals.setIcon(button, allHandled ? (waiting ? 'clock' : 'check') : 'send');
+    button.disabled = submittingQuotes || !binding || !savedModelIds.length || allHandled;
+}
+async function submitQuotes(prepareModels, onSubmitted, button = $('#submit-quotes')){
+    if (submittingQuotes) return;
+    submittingQuotes = true;
+    button.setAttribute('aria-busy','true');
+    button.querySelector('span').textContent = '提交中…';
+    window.modelcatVisuals.setIcon(button,'refresh');
+    $('#submit-quotes').disabled = $('#submit-edits').disabled = true;
+    try {
+        const models = await prepareModels();
+        const {quotes, skipped = 0, pending_models = []} = await api('/api/quotes/submit',{models});
+        if (quotes.length || skipped || pending_models.length) {
+            if (quotes.length || skipped) onSubmitted?.(quotes.length + skipped);
+            await loadGatewayAccount('quotes');
+        }
+        const messages = [];
+        if (quotes.length) messages.push(`已提交 ${quotes.length} 项`);
+        if (skipped) messages.push(`${skipped} 项相同报价已送审`);
+        if (pending_models.length) messages.push(`${pending_models.length} 个模型已有报价待审核，审核结束后可提交改价`);
+        return messages.join('，') || '没有可提交的报价';
+    } finally {
+        submittingQuotes = false;
+        button.removeAttribute('aria-busy');
+        window.modelcatVisuals.setIcon(button,'send');
+        renderSavedSubmit();
+        renderQuoteActions();
+    }
+}
+$('#unlock-form').onsubmit=e=>{e.preventDefault();token=$('#token').value;sessionStorage.setItem('node-token',token);refresh().catch(e=>notify(e.message))};
+$('#pause').onchange = async event => {
+    const toggle = event.target;
+    updatingOrders = true;
+    const pendingLabel = setTimeout(() => {
+        $('#order-action').textContent = toggle.checked ? '正在开启…' : '正在暂停…';
+    }, 250);
+    toggle.disabled = true;
+    try {
+        await api('/api/pause', {paused: !toggle.checked});
+        await refresh();
+    } catch (error) {
+        notify(error.message);
+    } finally {
+        clearTimeout(pendingLabel);
+        updatingOrders = false;
+        renderWorkspaceRuntime();
+    }
+};
+function currentRange() {
+    return $('input[name="traffic-range"]:checked').value;
+}
+async function refreshTraffic() {
+    if (!token || currentPage !== 'overview' || document.hidden) return;
+    const range = currentRange();
+    const tokens = $('input[name="usage-view"]:checked').value === 'tokens';
+    const path = (tokens ? '/api/token-usage/' : '/api/traffic/') + range;
+    if (statsOwner !== token) {
+        statsCache.clear();
+        statsKey = null;
+        statsOwner = token;
+    }
+    if (statsKey !== path) {
+        statsPending?.abort();
+        statsPending = null;
+        statsKey = path;
+        window.modelcatVisuals.gatewayTraffic(statsCache.get(path), range, '正在读取统计…', tokens);
+    }
+    if (statsPending) return;
+    const controller = new AbortController();
+    statsPending = controller;
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+        const data = await api(path, undefined, controller.signal);
+        if (statsPending !== controller) return;
+        if (!tokens) {
+            const previousLimit = statsCache.get(path)?.axisLimit || 0;
+            const peak = data.samples.reduce((max, point) => Math.max(max, point.rx, point.tx), 0);
+            data.axisLimit = previousLimit;
+            if (peak > previousLimit || !previousLimit) {
+                const target = Math.max(20, peak);
+                const unit = 10 ** Math.floor(Math.log10(target));
+                data.axisLimit = [1, 2, 5, 10].map(step => step * unit).find(limit => limit >= target);
+            }
+        }
+        statsCache.set(path, data);
+        window.modelcatVisuals.gatewayTraffic(data, range, '', tokens);
+    } catch {
+        if (statsPending === controller) {
+            window.modelcatVisuals.gatewayTraffic(statsCache.get(path), range, '统计暂不可用', tokens);
+            if (statsCache.has(path)) $('.traffic-empty').textContent = '刷新失败，显示上次数据';
+        }
+    } finally {
+        clearTimeout(timeout);
+        if (statsPending === controller) statsPending = null;
+    }
+}
+$('.usage-tabs').onchange = $('.traffic-ranges').onchange = refreshTraffic;
+document.addEventListener('visibilitychange', refreshTraffic);
+setInterval(refreshTraffic, 2000);
+$('#import').onclick=()=>perform(()=>api('/api/import',{provider:$('#provider').value}));
+const bindingPicker = $('#binding-file');
+let bindingCandidate = null;
+let bindingMessage = '';
+let bindingBusy = false;
+function clearBindingSelection() {
+    bindingPicker.value = '';
+    bindingCandidate = null;
+    bindingMessage = '';
+    renderBindingSelection();
+}
+function renderBindingSelection() {
+    const file = bindingPicker.files[0];
+    const active = nodeSnapshot?.runtime.active || 0;
+    $('#binding-selection').hidden = !file;
+    $('#binding-name').textContent = file?.name || '';
+    $('#binding-preview').textContent = bindingMessage || (bindingCandidate ?
+        [bindingCandidate.gateway_url, bindingCandidate.node_id, bindingCandidate.currency,
+            active ? '请暂停接单，等待 '+active+' 个请求完成' : ''].filter(Boolean).join(' · ') : '');
+    $('#bind').hidden = !bindingCandidate;
+    $('#bind').disabled = bindingBusy || active > 0;
+    $('#cancel-binding').disabled = bindingBusy;
+    $('#choose-binding').disabled = bindingBusy;
+}
+$('#choose-binding').onclick = () => bindingPicker.click();
+$('#cancel-binding').onclick = () => { clearBindingSelection(); $('#choose-binding').focus(); };
+bindingPicker.onchange = async () => {
+    const file = bindingPicker.files[0];
+    bindingCandidate = null;
+    bindingMessage = file ? '正在读取…' : '';
+    renderBindingSelection();
+    if (!file) return;
+    try {
+        const data = JSON.parse(await file.text());
+        if (bindingPicker.files[0] !== file) return;
+        if (!['gateway_url','node_id','node_secret','gateway_public_key','currency'].every(key =>
+            typeof data?.[key] === 'string' && data[key].trim())) throw Error();
+        bindingCandidate = data;
+        bindingMessage = '';
+    } catch {
+        if (bindingPicker.files[0] !== file) return;
+        bindingMessage = '文件格式有误，请重新选择节点绑定 JSON。';
+    }
+    renderBindingSelection();
+};
+$('#bind').onclick = async () => {
+    if (!bindingCandidate || bindingBusy) return;
+    bindingBusy = true;
+    bindingMessage = '正在绑定…';
+    renderBindingSelection();
+    try {
+        await api('/api/bind', bindingCandidate);
+        clearBindingSelection();
+        for (const id of ['#quote-reviews', '#earnings', '#confirmed', '#pending-earnings']) $(id).replaceChildren();
+        notify('节点绑定已更新');
+        await refresh();
+    } catch (error) {
+        bindingMessage = error.message.includes('drain active requests')
+            ? '请暂停接单，等待当前请求完成后重试。' : '绑定失败，请核对绑定文件后重试。';
+        if (!bindingCandidate) notify(error.message);
+    } finally {
+        bindingBusy = false;
+        renderBindingSelection();
+    }
+};
+$('#offer-form').onsubmit=e=>{e.preventDefault();perform(async()=>{const offer={...Object.fromEntries(new FormData(e.target)),enabled:true},next=structuredClone(config),i=next.offers.findIndex(o=>o.model===offer.model);if(i>=0)next.offers[i]=offer;else next.offers.push(offer);await api('/api/config',next)})};$('#submit-quotes').onclick = async () => {
+    const feedback = $('#saved-quote-feedback');
+    feedback.textContent = '';
+    try { notify(await submitQuotes(() => savedModelIds), feedback); }
+    catch (error) { feedback.textContent = error.message; }
+};
+$('#proxy-choice').onchange = () => {
+    if ($('#proxy-choice input:checked').value !== 'manual') document.querySelector('input[name="proxy-mode"][value="rules"]').checked = true;
+    renderProxyMode();
+
+};
+$('#concurrency-stepper').onclick = event => {
+    const step = event.target.closest('button[data-step]');
+    if (!step) return;
+    const input = $('#concurrency');
+    if (step.dataset.step === '1') input.stepUp();
+    else input.stepDown();
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+};
+$('#settings').oninput=()=>{
+    settingsDirty=true;
+    $('#network-settings-status').textContent='有未保存的更改';
+    renderProxyMode();
+};
+$('#settings').onsubmit=async e=>{
+    e.preventDefault();
+    const choice = $('#proxy-choice input:checked').value;
+    const proxy = choice === 'manual' ? $('#proxy').value.trim() : choice;
+    const mode=document.querySelector('input[name="proxy-mode"]:checked').value;
+    const status=$('#network-settings-status');
+    if(choice==='manual'&&['','auto','off'].includes(proxy)){
+        status.textContent='请输入工作区代理地址。';
+        $('#proxy').focus();
+        return;
+    }
+    const next={
+        ...config,
+        concurrency:Number($('#concurrency').value),
+        upstream_proxy:proxy||'auto',
+        proxy_mode:mode,
+        claude_api_direct:$('#claude-api-direct').checked
+    };
+    const button=e.submitter || $('#settings button.primary');
+    settingsDirty=false;
+    settingsSaving=true;
+    button.disabled=true;
+    status.textContent='正在保存…';
+    try{
+        await api('/api/config',next);
+        notify('工作区网络设置已保存。', status);
+    }catch(error){
+        settingsDirty=true;
+        status.textContent=error.message;
+    }finally{
+        settingsSaving=false;
+        button.disabled=false;
+        await refresh().catch(error=>notify(error.message));
+    }
+};
+function renderConfigEdit(message) {
+    const dirty = configEditBase !== null;
+    $('#config-json').readOnly = configEditSaving;
+    $('#save-json').disabled = !dirty || configEditSaving;
+    $('#discard-json').hidden = !dirty;
+    $('#discard-json').disabled = configEditSaving;
+    $('#config-edit-status').textContent = message;
+}
+$('#config-json').oninput = () => {
+    if (!config) return;
+    configEditBase ??= JSON.stringify(config);
+    $('#config-json').removeAttribute('aria-invalid');
+    renderConfigEdit('有未保存的修改');
+};
+$('#discard-json').onclick = () => {
+    configEditBase = null;
+    $('#config-json').value = JSON.stringify(config, null, 2);
+    $('#config-json').removeAttribute('aria-invalid');
+    renderConfigEdit('已恢复当前配置');
+    $('#config-json').focus();
+};
+$('#save-json').onclick = async () => {
+    if (configEditSaving || configEditBase === null) return;
+    const field = $('#config-json');
+    let next;
+    try {
+        next = JSON.parse(field.value);
+    } catch {
+        field.setAttribute('aria-invalid', 'true');
+        renderConfigEdit('JSON 格式有误，请检查引号、逗号和括号。');
+        field.focus();
+        return;
+    }
+    configEditSaving = true;
+    renderConfigEdit('正在保存…');
+    let message;
+    try {
+        const latest = await api('/api/status');
+        if (JSON.stringify(latest.config) !== configEditBase) {
+            throw Error('配置已发生变化。请先复制要保留的修改，再点「撤销修改」载入当前配置。');
+        }
+        await api('/api/config', next);
+        configEditBase = null;
+        message = '完整配置已保存';
+    } catch (error) {
+        message = error.message;
+    } finally {
+        await refresh().catch(error => notify(error.message));
+        configEditSaving = false;
+        if (configEditBase === null && config) field.value = JSON.stringify(config, null, 2);
+        renderConfigEdit(message);
+    }
+};
+let proxyCheckRevision = 0;
+function showProxyCheck(kind, state, label, detail) {
+    window.modelcatVisuals.stateBadge($('#' + kind + '-proxy-badge'), state, label);
+    $('#' + kind + '-proxy-status').textContent = detail;
+}
+function resetProxyChecks(settings) {
+    proxyCheckRevision++;
+    showProxyCheck('api', 'idle', '待检测', '按已保存的网络设置探测模型接口');
+    $('#test-proxy').disabled = false;
+    const dedicated = !!settings.upstream_proxy && !['auto', 'off'].includes(settings.upstream_proxy);
+    showProxyCheck('oauth', dedicated ? 'idle' : 'paused', dedicated ? '待检测' : '待配置',
+        dedicated ? '通过专用代理探测授权与令牌接口' : '请先在连接方式中指定并保存代理地址');
+    $('#test-oauth-proxy').disabled = !dedicated;
+}
+async function runProxyCheck(button, kind) {
+    const version = proxyCheckRevision;
+    const oauth = kind === 'oauth';
+    button.disabled = true;
+    showProxyCheck(kind, 'pending', '检测中', oauth ? '正在连接授权服务…' : '正在等待模型接口响应…');
+    try {
+        const result = await api(oauth ? '/api/proxy/claude-oauth' : '/api/proxy/test', {});
+        if (version !== proxyCheckRevision) return;
+        const details = oauth
+            ? `授权 HTTP ${result.authorization_http_status} · 令牌探测（无凭据）HTTP ${result.token_probe_http_status} · 浏览器出口待验证`
+            : `HTTP ${result.http_status} · ${result.elapsed_ms} ms`;
+        showProxyCheck(kind, 'online', oauth ? '节点可达' : '接口可达', details);
+    } catch (error) {
+        if (version === proxyCheckRevision) showProxyCheck(kind, 'offline', '检测失败', error.message);
+    } finally {
+        if (version === proxyCheckRevision) button.disabled = false;
+        if (!oauth) await refresh().catch(() => {});
+    }
+}
+$('#test-proxy').onclick = event => runProxyCheck(event.currentTarget, 'api');
+$('#test-oauth-proxy').onclick = event => runProxyCheck(event.currentTarget, 'oauth');
 $('#oauth').onclick=()=>perform(async()=>{if($('#provider').value==='kiro')throw Error('Kiro 请使用本机导入或选择 Session 文件');const r=await api('/api/oauth/start',{provider:$('#provider').value});flow=r.flow_id;$('#oauth-flow').classList.remove('hidden');$('#oauth-link').href=r.auth_url;window.open(r.auth_url,'_blank','noopener');pollOAuth()});async function pollOAuth(){if(!flow)return;try{const r=await api('/api/oauth/'+flow);if(r.status==='pending'){setTimeout(pollOAuth,1500);return}flow=null;$('#oauth-flow').classList.add('hidden');if(r.status==='error')throw Error(r.error);notify('账号连接成功');await refresh()}catch(e){notify(e.message)}}$('#submit-code').onclick=()=>perform(()=>api('/api/oauth/'+flow+'/code',{code:$('#oauth-code').value}));
-$('#load-earnings').onclick=async()=>{try{const r=await api('/api/earnings');table('#earnings',[['账单',x=>x.id],['金额',x=>money(x.amount_nanos)+' '+x.currency],['状态',x=>x.status],['支付凭证',x=>x.reference]],r.invoices);table('#confirmed',[['请求',x=>x.id],['状态',x=>x.status],['模型',x=>x.model],['应付',x=>money(x.cost_nanos)],['账单',x=>x.invoice_id]],r.requests)}catch(e){notify(e.message)}};
+function bindingIdentity(binding) {
+    return binding ? JSON.stringify([binding.gateway_url, binding.node_id]) : '';
+}
+function renderRequestSettlement(account, message) {
+    if (!billingRequest) return;
+    const item = account?.requests?.find(request => request.id === billingRequest.record.id);
+    const labels = {settled: '已计价', failed: '结算失败', running: '待结算', review: '待网关复核'};
+    $('#billed-settlement').textContent = item ? labels[item.status] || item.status || '状态未知' : message;
+    $('#billed-amount').textContent = item?.status === 'settled' ? money(item.cost_nanos, item.currency || account.currency) : '—';
+    $('#billed-invoice').textContent = item?.invoice_id || (item?.status === 'settled' ? '尚未出账单' : '—');
+}
+// The overview, quote review and ledger read the same account endpoint.
+let gatewayAccount;
+function readGatewayAccount() {
+    const binding = bindingIdentity(nodeSnapshot?.binding);
+    if (!gatewayAccount || gatewayAccount.binding !== binding) gatewayAccount = {binding};
+    const entry = gatewayAccount;
+    if (!entry.pending) {
+        entry.pending = api('/api/earnings', undefined, AbortSignal.timeout(16000)).then(account => {
+            entry.account = account;
+            entry.received = Date.now();
+            return account;
+        }).finally(() => { entry.pending = null; });
+    }
+    return entry.pending;
+}
+function showLedgerAccount(account, binding, received) {
+    $('#balance-value').textContent = money(account.pending_nanos, account.currency);
+    $('#pending-earnings').textContent = '网关更新于 ' + new Date(received).toLocaleTimeString('zh-CN');
+    if (!ledgerManual && $('#local-usage').hidden && !$('#ledger-search').value) {
+        selectLedger(!account.invoices?.length && account.requests?.length ? 'confirmed' : 'earnings');
+    }
+    ledgerSnapshot = account;
+    ledgerBinding = binding;
+    renderLedger();
+}
+async function loadGatewayAccount(destination) {
+    const quotes = destination === 'quotes';
+    const button = $(quotes ? '#load-quotes' : '#load-earnings');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+        const binding = nodeSnapshot?.binding;
+        const nodeId = binding?.node_id;
+        if (!nodeId) throw Error('请先在卖家中心绑定节点。');
+        const account = await readGatewayAccount();
+        if (bindingIdentity(nodeSnapshot?.binding) !== bindingIdentity(binding)) return;
+        if (quotes) {
+            cacheOrderApprovals(reviewedModels(binding), account, nodeId);
+            renderWorkspaceRuntime();
+            renderSavedSubmit();
+            const seen = new Set();
+            const items = (account.quotes || []).filter(q => {
+                if (q.node_id !== nodeId) return false;
+                const key = JSON.stringify([q.model,q.provider,q.upstream_model,q.currency,q.input_micros_per_m,q.output_micros_per_m,q.enabled,q.approved]);
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+            const waiting = items.filter(quote => quote.enabled && !quote.approved).length;
+            const approved = items.filter(quote => quote.enabled && quote.approved).length;
+            $('#step-quotes').textContent = waiting + ' 条待审核 · ' + approved + ' 条已批准';
+            table('#quote-reviews', [
+                ['模型', quoteModelLabel],
+                ['输入 / M', q => (q.input_micros_per_m / 1e6).toFixed(2) + ' ' + q.currency],
+                ['输出 / M', q => (q.output_micros_per_m / 1e6).toFixed(2) + ' ' + q.currency],
+                ['状态', q => {
+                    const badge = Object.assign(document.createElement('span'), {className:'state-badge'});
+                    if (!q.enabled) badge.title = '平台已停用这条报价记录，新订单不会使用这条报价。';
+                    return window.modelcatVisuals.stateBadge(badge, !q.enabled ? 'paused' : q.approved ? 'online' : 'pending',
+                        !q.enabled ? '报价已停用' : q.approved ? '已批准' : '待审核');
+                }]
+            ], items);
+            return;
+        }
+        showLedgerAccount(account, bindingIdentity(binding), gatewayAccount.received);
+        return account;
+    } catch (error) {
+        if (quotes) $('#step-quotes').textContent = error.message;
+        else throw error;
+    } finally {
+        button.disabled = false;
+    }
+}
+let ledgerManual = false;
+let ledgerChecked = 0;
+let billingInBackground = false;
+let ledgerSnapshot;
+let ledgerBinding;
+function renderLedger() {
+    if (!$('#local-usage').hidden) return;
+    const invoices = !$('#earnings').hidden;
+    const search = $('#ledger-search');
+    search.placeholder = invoices ? '搜索账单或支付凭证' : '搜索请求、模型或账单';
+    if (!ledgerSnapshot) {
+        $('#ledger-count').textContent = '';
+        return;
+    }
+    const entries = (invoices ? ledgerSnapshot.invoices : ledgerSnapshot.requests) || [];
+    const query = search.value.trim().toLowerCase();
+    const rows = entries.filter(item => [item.id, item.reference, item.model, item.invoice_id].some(value =>
+        String(value ?? '').toLowerCase().includes(query)));
+    const state = {settled:'已计价', failed:'失败', running:'处理中', review:'待复核', paid:'已支付', pending:'待处理'};
+    const columns = invoices ? [
+        ['账单', item => item.id], ['金额', item => money(item.amount_nanos, item.currency)],
+        ['状态', item => state[item.status] || item.status], ['支付凭证', item => item.reference]
+    ] : [
+        ['请求', item => modelcatHistory.billingLink(item)], ['状态', item => state[item.status] || item.status],
+        ['模型', item => item.model], ['应付', item => money(item.cost_nanos, item.currency)], ['账单', item => item.invoice_id || (item.status === 'settled' ? '待出账' : '—')]
+    ];
+    const target = invoices ? '#earnings' : '#confirmed';
+    if (rows.length) table(target, columns, rows);
+    else $(target).replaceChildren(Object.assign(document.createElement('p'), {className:'muted',
+        textContent: query ? '没有匹配的记录' : invoices ? '网关尚未生成账单' : '网关暂无请求记录'}));
+    $('#ledger-count').textContent = query ? rows.length + ' / ' + entries.length + ' 条' : entries.length + ' 条';
+}
+$('#ledger-search').oninput = renderLedger;
+function updateBillingOnEntry() {
+    if (currentPage !== 'billing' || !nodeSnapshot) return;
+    const binding = bindingIdentity(nodeSnapshot.binding);
+    $('#ledger-bind').hidden = Boolean(binding);
+    if (displayedBillingBinding === binding) {
+        if (binding && !document.hidden && !billingInBackground && Date.now() - ledgerChecked >= 60000) void refreshEarnings();
+        return;
+    }
+    displayedBillingBinding = binding;
+    if (binding !== ledgerBinding) {
+        if (ledgerBinding !== undefined) ledgerManual = false;
+        ledgerBinding = binding;
+        ledgerSnapshot = undefined;
+        $('#ledger-search').value = '';
+        $('#balance-value').textContent = '—';
+        $('#earnings').replaceChildren();
+        $('#confirmed').replaceChildren();
+        renderLedger();
+    }
+    if (binding && gatewayAccount?.binding === binding && gatewayAccount.account) {
+        showLedgerAccount(gatewayAccount.account, binding, gatewayAccount.received);
+        ledgerChecked = gatewayAccount.received;
+        if (Date.now() - ledgerChecked < 60000) return;
+    } else {
+        $('#pending-earnings').textContent = binding ? '正在读取账单…' : '绑定卖家节点后可查看账单。';
+    }
+    if (binding) void refreshEarnings();
+}
+function refreshEarnings() {
+    if (earningsRefresh) return earningsRefresh;
+    ledgerChecked = Date.now();
+    const binding = bindingIdentity(nodeSnapshot?.binding);
+    if (billingRequest?.binding === binding) renderRequestSettlement(null, '正在查询网关…');
+    earningsRefresh = loadGatewayAccount('earnings').then(account => {
+        if (account && billingRequest?.binding === binding) {
+            renderRequestSettlement(account, '本次查询未返回这笔请求，请稍后刷新账单。');
+        }
+    }).catch(error => {
+        if (billingRequest?.binding === binding) renderRequestSettlement(null, error.message);
+        if (bindingIdentity(nodeSnapshot?.binding) === binding) $('#pending-earnings').textContent = (ledgerSnapshot ? '刷新失败，显示上次读取的数据。' : '') + error.message;
+    }).finally(() => {
+        earningsRefresh = null;
+        const currentBinding = bindingIdentity(nodeSnapshot?.binding);
+        if (currentBinding && currentBinding !== binding && (currentPage === 'billing' || billingRequest?.binding === currentBinding)) void refreshEarnings();
+    });
+    return earningsRefresh;
+}
+function selectLedger(view) {
+    $('.ledger').hidden = view === 'local-usage';
+    for (const item of document.querySelectorAll('[data-ledger-view]')) {
+        const selected = item.dataset.ledgerView === view;
+        item.setAttribute('aria-pressed', String(selected));
+        document.getElementById(item.dataset.ledgerView).hidden = !selected;
+    }
+}
+document.querySelectorAll('[data-ledger-view]').forEach(button => {
+    button.onclick = () => {
+        ledgerManual = true;
+        selectLedger(button.dataset.ledgerView);
+        $('#ledger-search').value = '';
+        renderLedger();
+    };
+});
+$('#ledger-bind').onclick = () => {
+    showPage('seller', true);
+    showSellerView('node');
+    $('#choose-binding').focus();
+};
+$('#load-earnings').onclick = refreshEarnings;
+$('#load-quotes').onclick = () => loadGatewayAccount('quotes');
 if(token)refresh().catch(e=>notify(e.message));setInterval(()=>{if(token&&config)refresh().catch(()=>{})},10000);
-function renderDiscovered(accounts){const rows=[];for(const a of accounts)for(const id of a.models||[])if(!rows.some(r=>r.id===id&&r.provider===a.provider))rows.push({id,provider:a.provider});const signature=JSON.stringify([rows,accounts.map(a=>a.discovery_error)]);if(discoveredSignature===signature)return;discoveredSignature=signature;table('#discovered-models',[['选择',r=>{const c=document.createElement('input');c.type='checkbox';c.dataset.model=r.id;c.dataset.provider=r.provider;c.setAttribute('aria-label','选择 '+r.id);return c}],['工具',r=>r.provider],['模型 ID',r=>r.id],['输入 USD / M',r=>priceInput(r,'input')],['输出 USD / M',r=>priceInput(r,'output')]],rows);for(const a of accounts){if(a.discovery_error){const p=document.createElement('p');p.className='muted';p.textContent=a.provider+' · '+a.discovery_error;$('#discovered-models').append(p)}}}
-function priceInput(r,kind){const el=document.createElement('input');el.type='text';el.inputMode='decimal';el.placeholder='0.000';el.setAttribute('aria-label',r.id+' '+kind+' USD / M');el.dataset.price=kind;el.style.width='110px';const offer=config.offers.find(o=>o.provider===r.provider&&o.upstream_model===r.id);el.value=offer?.[kind+'_price_per_m']||'';return el}
-async function saveSelected(submit){const rows=[...document.querySelectorAll('#discovered-models tr')].filter(tr=>tr.querySelector('input[type=checkbox]')?.checked);if(!rows.length)throw Error('请至少选择一个模型');const next=structuredClone(config);for(const tr of rows){const c=tr.querySelector('input[type=checkbox]'),id=c.dataset.model,offer={model:id,provider:c.dataset.provider,upstream_model:id,input_price_per_m:tr.querySelector('[data-price=input]').value,output_price_per_m:tr.querySelector('[data-price=output]').value,enabled:true};if(!offer.input_price_per_m||!offer.output_price_per_m)throw Error('请为 '+id+' 填写输入和输出价格');const i=next.offers.findIndex(o=>o.model===id);if(i>=0)next.offers[i]=offer;else next.offers.push(offer)}await api('/api/config',next);if(submit)await api('/api/quotes/submit',{models:rows.map(tr=>tr.querySelector('input[type=checkbox]').dataset.model)})}
-$('#add-selected').onclick=()=>perform(()=>saveSelected(false));$('#submit-selected').onclick=()=>perform(()=>saveSelected(true));$('#discover-models').onclick=()=>perform(async()=>{discoveredSignature='';await api('/api/models/discover',{})});$('#select-all').onchange=e=>document.querySelectorAll('#discovered-models input[type=checkbox]').forEach(c=>c.checked=e.target.checked);$('#import-kiro').onclick=()=>perform(async()=>{const file=$('#kiro-session').files[0];if(!file)throw Error('请选择 Session JSON');await api('/api/import/kiro',JSON.parse(await file.text()));$('#kiro-session').value='';discoveredSignature=''});
-const sections=[...document.querySelectorAll('#app>section')],groups=['settings','tools','tools','settings','billing','billing','settings'];sections.forEach((s,i)=>s.dataset.tabPane=groups[i]||'overview');$('#app>.grid').dataset.tabPane='overview';$('#seller-tabs').onclick=e=>{const tab=e.target.dataset.tab;if(!tab)return;document.querySelectorAll('[data-tab-pane]').forEach(s=>s.classList.toggle('hidden',s.dataset.tabPane!==tab));document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab))};$('#seller-tabs button').click();
-</script></html>
+function quoteCandidates(snapshot){
+    const {accounts, connections = [], ollama_models = [], config} = snapshot;
+    const claude = snapshot.vm_workspace && snapshot.claude_api;
+    const rows=ollama_models.map(id=>({id,upstreamId:id,provider:'custom',label:'Ollama'}));
+    if(claude&&!claude.paused&&!claude.base_url)for(const id of claude.models||[]){
+        rows.push({id,upstreamId:'claude-api/'+id,provider:'claude',label:'Claude API Key'});
+    }
+    for(const a of accounts)for(const id of a.models||[]){
+        if(!rows.some(r=>r.id===id&&r.provider===a.provider))rows.push({id,upstreamId:id,provider:a.provider,label:a.provider});
+    }
+    for (const connection of connections) for (const model of connection.models) {
+        if(connection.oauth)continue;
+        const existing=config.offers.find(offer=>offer.upstream_model===model.id);
+        const suggested=model.name.slice(0,100)+'-'+connection.id.slice(0,8);
+        rows.push({id:existing?.model || suggested, upstreamId:model.id, provider:connection.offer_provider, label:connection.label, localPricing:connection.protocol === 'ollama', sourceModel:model.name});
+    }
+    return rows;
+}
+function renderDiscovered(snapshot){
+    const rows = quoteCandidates(snapshot);
+    const accounts = snapshot.accounts;
+    const binding = bindingIdentity(snapshot.binding);
+    const signature=JSON.stringify([binding, rows, config.offers, accounts.map(a=>a.discovery_error)]);
+    if(discoveredSignature===signature)return;
+    const container = $('#discovered-models');
+    if (container.dataset.binding !== binding) $('#quote-changes').setAttribute('aria-pressed','false');
+    container.dataset.binding = binding;
+    discoveredSignature=signature;
+    table('#discovered-models', [
+        ['来源',r=>r.label], ['模型',r=>r.sourceModel || r.id],
+        ['输入（美元 / 百万 Token）',r=>priceInput(r,'input')],
+        ['输出（美元 / 百万 Token）',r=>priceInput(r,'output')]
+    ],rows);
+    const tableRows = container.querySelector('table').rows;
+    rows.forEach((model,index) => {
+        const row = tableRows[index+1];
+        Object.assign(row.dataset, {model:model.id, upstream:model.upstreamId, provider:model.provider});
+        row.classList.toggle('quote-edited', Boolean(row.querySelector('[data-edited="true"]')));
+    });
+    for(const a of accounts)if(a.discovery_error){
+        const message=document.createElement('p');
+        message.className='muted';
+        message.textContent=a.provider+' · '+a.discovery_error;
+        $('#discovered-models').append(message);
+    }
+    filterQuoteRows();
+}
+function priceInput(row,kind){
+    const cell=document.createElement('div');
+    cell.className='quote-price-cell';
+    const input=document.createElement('input');
+    input.type='text';
+    input.inputMode='decimal';
+    input.placeholder='—';
+    let beforeEdit='';
+    input.onfocus=()=>{beforeEdit=input.value;};
+    input.onkeydown=event=>{
+        if(event.isComposing || !['Escape','Enter'].includes(event.key))return;
+        event.preventDefault();
+        if(event.key==='Escape'){
+            input.value=beforeEdit;
+            input.dispatchEvent(new Event('input', {bubbles:true}));
+        }
+        input.blur();
+    };
+    input.setAttribute('aria-label',row.id+' '+(kind==='input'?'输入价':'输出价')+'，美元 / 百万 Token');
+    input.dataset.price=kind;
+    const offer=config.offers.find(o=>o.provider===row.provider&&o.upstream_model===row.upstreamId);
+    input.dataset.config = offer?.[kind+'_price_per_m'] ?? '';
+    input.dataset.key = 'quote-v1/' + JSON.stringify([bindingIdentity(nodeSnapshot?.binding), row.provider, row.upstreamId, row.id, kind]);
+    let stored = {};
+    try { stored = JSON.parse(localStorage.getItem(input.dataset.key) || '{}') || {}; } catch {}
+    input.defaultValue = (stored.draft !== undefined || stored.config === input.dataset.config) ? stored.base : input.dataset.config;
+    input.value = stored.draft ?? input.defaultValue;
+    input.dataset.edited = String(input.value !== input.defaultValue);
+    const reference=document.createElement('small');
+    reference.className='quote-reference';
+    reference.dataset.reference=kind;
+    reference.id='quote-ref-'+row.provider+'-'+encodeURIComponent(row.upstreamId)+'-'+kind;
+    const difference=document.createElement('small');
+    difference.className='quote-difference';
+    difference.id=reference.id+'-diff';
+    difference.hidden=true;
+    input.setAttribute('aria-describedby',reference.id+' '+difference.id);
+    if (!row.localPricing && (row.sourceModel || row.provider !== 'custom')) reference.dataset.lookup=row.sourceModel || row.id;
+    const display = document.createElement('span');
+    display.className = 'quote-display';
+    display.setAttribute('aria-hidden','true');
+    cell.append(input, reference, difference, display);
+    updateQuoteDifference(input);
+    return cell;
+}
+function validQuote(value) {
+    return /^\d+(?:\.\d{1,6})?$/.test(value) && Number(value) <= 1000;
+}
+function updateQuoteDifference(field) {
+    const cell = field.parentElement;
+    const display = cell.querySelector('.quote-display');
+    display.textContent = validQuote(field.value) ? Number(field.value).toFixed(2) : field.value || field.placeholder;
+    display.classList.toggle('reference-value', !field.value);
+    const badge = cell.querySelector('.quote-difference');
+    const reference = Number(field.dataset.referencePrice);
+    const quote = field.value.trim();
+    if (!quote && validQuote(field.dataset.referencePrice)) {
+        badge.hidden = false;
+        badge.textContent = '用参考价';
+        badge.title = '留空时按此参考价提交';
+        badge.setAttribute('aria-label', badge.title);
+        return;
+    }
+    badge.hidden = !Number.isFinite(reference) || !validQuote(quote);
+    if (badge.hidden) {
+        badge.textContent = '';
+        return;
+    }
+    const delta = Number(quote) - reference;
+    const amount = Math.abs(delta).toLocaleString('zh-CN', { maximumSignificantDigits: 12 });
+    badge.textContent = delta === 0 ? '持平' : (delta > 0 ? '↑ $' : '↓ $') + amount;
+    badge.title = delta === 0 ? '与参考价相同' : (delta > 0 ? '高于参考价 $' : '低于参考价 $') + amount;
+    badge.setAttribute('aria-label', badge.title);
+}
+function renderReferencePrices(catalog){
+    const checked=catalog?.checked;
+    const source=$('#quote-price-source');
+    source.title=checked ? 'Models.dev · 最近核对 '+new Date(checked*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+(catalog.failed?' · 暂用缓存':'')
+        : catalog?.failed?'参考价暂不可用，后台将重试。':'参考价正在后台同步…';
+    source.textContent=checked && !catalog.failed ? '参考价 · Models.dev' : checked ? '参考价 · Models.dev（缓存）' : catalog?.failed ? '参考价同步失败' : '参考价同步中';
+    source.setAttribute('aria-label',source.title);
+    for(const label of document.querySelectorAll('#discovered-models [data-reference]')){
+        const model=label.dataset.lookup;
+        const price=model && catalog?.prices?.[model];
+        const value=price?.[label.dataset.reference];
+        const text=Number.isFinite(value)?'参考 $'+value:!model?'本地定价':checked?'暂无参考价':'参考 —';
+        const field=label.previousElementSibling;
+        field.placeholder=Number.isFinite(value)?value.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:12,useGrouping:false}):'—';
+        if (validQuote(String(value))) field.dataset.referencePrice=String(value);
+        else delete field.dataset.referencePrice;
+        if (!validQuote(field.dataset.referencePrice)) field.placeholder = '待填写';
+        updateQuoteDifference(field);
+        label.textContent = validQuote(field.dataset.referencePrice) ? text + ' · 留空采用' : '请填写单价后送审';
+        field.title=(price ? price.vendor+' · '+text : text)+' · 点击编辑报价';
+    }
+}
+function referenceQuoteRows() {
+    return [...document.querySelectorAll('#discovered-models tr[data-model]')].filter(row => {
+        if (row.hidden || config.offers.some(offer => offer.model === row.dataset.model)) return false;
+        return [...row.querySelectorAll('[data-price]')].every(field =>
+            !field.value && validQuote(field.dataset.referencePrice)
+        );
+    });
+}
+async function saveCatalogQuotes(rows) {
+    if (!rows.length) throw Error('没有可提交的报价');
+    const next = structuredClone(config);
+    for (const row of rows) {
+        const {model, provider, upstream} = row.dataset;
+        let offer = next.offers.find(item => item.model === model);
+        if (!offer) {
+            offer = {model, provider, upstream_model: upstream, enabled: true};
+            next.offers.push(offer);
+        }
+        for (const field of row.querySelectorAll('[data-price]')) {
+            const value = field.value.trim() || field.dataset.referencePrice;
+            if (!validQuote(value)) {
+                if (row.hidden) {
+                    $('#quote-search').value = '';
+                    $('#quote-changes').setAttribute('aria-pressed','false');
+                    filterQuoteRows();
+                }
+                field.setAttribute('aria-invalid', 'true');
+                $('#discovered-models').inert = false;
+                field.focus();
+                throw Error(model + ' 的' + (field.dataset.price === 'input' ? '输入' : '输出') + '单价须在 0 到 1000 之间，最多 6 位小数。');
+            }
+            offer[field.dataset.price + '_price_per_m'] = value;
+        }
+    }
+    await api('/api/config', next);
+    return rows.map(row => row.dataset.model);
+}
+function storeQuoteField(field) {
+    const edited = field.value !== field.defaultValue;
+    field.dataset.edited = String(edited);
+    const key = field.dataset.key;
+    try {
+        if (edited || field.defaultValue !== field.dataset.config) {
+            localStorage.setItem(key, JSON.stringify({base:field.defaultValue, config:field.dataset.config, draft:edited ? field.value : undefined}));
+        } else localStorage.removeItem(key);
+        delete field.dataset.unsaved;
+    } catch {
+        field.dataset.unsaved = 'true';
+    }
+    updateQuoteDifference(field);
+    const row = field.closest('tr');
+    row.classList.toggle('quote-edited', Boolean(row.querySelector('[data-edited="true"]')));
+}
+$('#discovered-models').oninput = event => {
+    const field = event.target;
+    if (!field.matches('[data-price]')) return;
+    field.removeAttribute('aria-invalid');
+    storeQuoteField(field);
+    renderQuoteActions();
+};
+function renderQuoteActions() {
+    const changed = document.querySelectorAll('#discovered-models .quote-edited').length;
+    $('#quote-autosaved').textContent = $('#discovered-models [data-unsaved]') ? '本机保存失败' : changed ? '已自动保存到本机' : '';
+    const filter = $('#quote-changes');
+    filter.disabled = !changed && filter.getAttribute('aria-pressed') !== 'true';
+    $('#reset-quotes').disabled = !changed || quotePending;
+    const references = changed ? 0 : referenceQuoteRows().length;
+    const button = $('#submit-edits');
+    if (button.getAttribute('aria-busy') === 'true') return;
+    button.querySelector('span').textContent = changed ? '提交 ' + changed + ' 项审核'
+        : references ? '按参考价提交 ' + references + ' 项' : '提交审核';
+    button.title = changed ? '提交所有已修改的模型报价' : '提交当前列表中参考价完整、尚未保存的模型报价';
+    button.disabled = !(changed || references) || !nodeSnapshot?.binding || quotePending || submittingQuotes;
+}
+$('#quote-changes').onclick = event => {
+    const button = event.currentTarget;
+    button.setAttribute('aria-pressed',String(button.getAttribute('aria-pressed') !== 'true'));
+    filterQuoteRows();
+};
+let quotePending = false;
+function lockQuoteEditor(locked) {
+    quotePending = locked;
+    $('#discovered-models').inert = locked;
+    renderQuoteActions();
+}
+$('#reset-quotes').onclick = async () => {
+    const binding = bindingIdentity(nodeSnapshot?.binding);
+    const fields = [...document.querySelectorAll('#discovered-models .quote-edited [data-price]')];
+    lockQuoteEditor(true);
+    try {
+        const account = binding ? await readGatewayAccount() : {quotes:[]};
+        if (binding !== bindingIdentity(nodeSnapshot?.binding)) return;
+        if (!Array.isArray(account.quotes)) throw Error('无法读取正式报价，请重试');
+        const official = new Map(account.quotes.filter(q => q.node_id === nodeSnapshot?.binding?.node_id && q.approved && q.enabled).map(q => [q.model,q]));
+        for (const field of fields) {
+            if (!field.isConnected) throw Error('模型列表已更新，请重试');
+            const quote = official.get(field.closest('tr').dataset.model);
+            const micros = quote?.[field.dataset.price+'_micros_per_m'];
+            field.defaultValue = Number.isFinite(micros) ? String(micros / 1e6) : '';
+            field.value = field.defaultValue;
+            field.removeAttribute('aria-invalid');
+            storeQuoteField(field);
+        }
+        $('#quote-changes').setAttribute('aria-pressed','false');
+        filterQuoteRows();
+        notify('已恢复平台已批准的报价。无已批准报价的模型已清空。', $('#quote-feedback'));
+    } catch (error) { notify(error.message, $('#quote-feedback')); }
+    finally { lockQuoteEditor(false); }
+};
+$('#submit-edits').onclick = async () => {
+    if (quotePending) return;
+    const binding = bindingIdentity(nodeSnapshot?.binding);
+    const edits = [...document.querySelectorAll('#discovered-models .quote-edited')];
+    const useReference = edits.length === 0;
+    const rows = useReference ? referenceQuoteRows() : edits;
+    const fields = rows.flatMap(row => [...row.querySelectorAll('[data-price]')]);
+    lockQuoteEditor(true);
+    const feedback = $('#quote-feedback');
+    feedback.textContent = '';
+    try {
+        const message = await submitQuotes(() => saveCatalogQuotes(rows), submitted => {
+            if (submitted !== rows.length || binding !== bindingIdentity(nodeSnapshot?.binding)) return;
+            for (const field of fields) localStorage.removeItem(field.dataset.key);
+            discoveredSignature = '';
+            $('#quote-changes').setAttribute('aria-pressed','false');
+        }, $('#submit-edits'));
+        notify(message, feedback);
+        await refresh();
+    } catch (error) { feedback.textContent = error.message; }
+    finally { lockQuoteEditor(false); }
+};
+$('#discover-models').onclick = () => perform(async () => { discoveredSignature = ''; await api('/api/models/discover', {}); });
+function filterQuoteRows() {
+    const query = $('#quote-search').value.trim().toLocaleLowerCase();
+    const onlyChanges = $('#quote-changes').getAttribute('aria-pressed') === 'true';
+    const rows = [...document.querySelectorAll('#discovered-models tr[data-model]')];
+    for (const row of rows) {
+        const name = [row.dataset.model,row.cells[0].textContent,row.cells[1].textContent].join(' ').toLocaleLowerCase();
+        row.hidden = (onlyChanges && !row.classList.contains('quote-edited')) || !name.includes(query);
+    }
+    $('#quote-no-match').hidden = !rows.length || rows.some(row => !row.hidden);
+    renderQuoteActions();
+}
+$('#quote-search').oninput = filterQuoteRows;
+$('#discovered-models').onfocusout = event => {
+    if (event.target.matches('[data-price]')) filterQuoteRows();
+};
+$('#import-kiro').onclick=()=>perform(async()=>{const file=$('#kiro-session').files[0];if(!file)throw Error('请选择 Session JSON');await api('/api/import/kiro',JSON.parse(await file.text()));$('#kiro-session').value='';discoveredSignature=''});
+const navigation = window.modelcatNavigation;
+let navigationTrigger;
+document.addEventListener('click', event => {
+    const trigger = event.target.closest('button, a, [role="button"]');
+    if (trigger) {
+        navigationTrigger = trigger;
+        setTimeout(() => { if (navigationTrigger === trigger) navigationTrigger = null; }, 0);
+    }
+}, true);
+function guestOrigin() {
+    const trigger = navigationTrigger || document.activeElement;
+    return {page: currentPage, scroll: window.scrollY, triggerId: trigger?.id, node: trigger?.dataset.node};
+}
+function showPage(tab, focus = false, fromHost = false, traceReturn = false) {
+    if (tab === currentPage) {
+        if (focus) $('#page-title').focus({preventScroll: true});
+        return;
+    }
+    const origin = guestOrigin();
+    if (currentPage === 'local') maskLocalKey();
+    window.modelcatHistory.dismissDetail();
+    if (currentPage === 'models' || currentPage === 'local') window.modelcatConnections.dismissEditor();
+    if (currentPage === 'billing') displayedBillingBinding = undefined;
+    currentPage = tab;
+    updateBillingOnEntry();
+    const service = $('#seller-service');
+    if (tab === 'seller') $('#seller-service-slot').append(service);
+    if (tab === 'overview') $('.workspace-summary').after(service);
+    document.querySelectorAll('[data-tab-pane]').forEach(pane => pane.hidden = pane.dataset.tabPane !== tab);
+    if (tab === 'seller') showSellerView(sellerView);
+    $('#request-billing').hidden = tab !== 'billing' || !billingRequest;
+    $('#connection').hidden = tab !== 'seller' && tab !== 'overview';
+    if (nodeSnapshot) renderWorkspaceRuntime();
+    navigation.select(tab, focus);
+    if (inDesktop) {
+        pageParams.set('page', tab);
+        history.replaceState(null, '', location.pathname + '?' + pageParams);
+    }
+    if (reportedReady && !fromHost) parent.postMessage({type: 'page', page: tab, origin: traceReturn ? null : origin, traceReturn}, '*');
+    window.scrollTo(0, 0);
+    if (tab === 'overview') void refreshTraffic();
+    if (tab === 'requests' && nodeSnapshot) void modelcatHistory.load();
+    if (tab === 'overview' || tab === 'local' || tab === 'requests') void refreshActivity();
+}
+async function refreshActivity() {
+    const visible = !document.hidden && (!document.querySelector('.overview').hidden || currentPage === 'local' || currentPage === 'requests' || currentPage === 'seller');
+    if (!visible || !nodeSnapshot || activityPending) return;
+    activityPending = true;
+    try {
+        const snapshot = nodeSnapshot;
+        const {active, requests, recent, gateway} = await api('/api/activity', undefined, AbortSignal.timeout(2200));
+        if (snapshot !== nodeSnapshot) return;
+        const rt = snapshot.runtime;
+        const timed = gateway && ['connecting','reconnecting'].includes(gateway.connection);
+        const gatewayChanged = gateway && (rt.connection !== gateway.connection || rt.last_error !== gateway.last_error ||
+            (timed && (rt.now !== gateway.now || rt.retry_at !== gateway.retry_at || rt.connecting_since !== gateway.connecting_since)));
+        if (gateway) Object.assign(rt, gateway);
+        window.modelcatConnections.activity(requests || [], recent || []);
+        const subscriber = (requests || []).some(request => request.gateway);
+        if (nodeSnapshot && (gatewayChanged || active !== activeRequests || subscriber !== subscriberActive)) {
+            subscriberActive = subscriber;
+            activeRequests = active;
+            renderWorkspaceRuntime();
+        }
+    } catch {
+        activeRequests = null;
+        subscriberActive = false;
+        if (nodeSnapshot) renderWorkspaceRuntime();
+    } finally {
+        activityPending = false;
+    }
+}
+setInterval(refreshActivity, 500);
+navigation.onNavigate(tab => showPage(tab, true));
+document.querySelectorAll('[data-open-tab]').forEach(button => {
+    button.addEventListener('click', () => showPage(button.dataset.openTab, true));
+});
+$('#open-quote').onclick = () => {
+    showPage('seller');
+    showSellerView('catalog');
+    const title = $('#quote-title');
+    title.focus({preventScroll: true});
+    title.scrollIntoView({block: 'start'});
+};
+window.modelcatConnections.configure(api, refresh);
+$('.topology-panel .topology').addEventListener('click', event => {
+    const node = event.target.closest('button[data-node]');
+    if (!node) return;
+    if (node.dataset.node === 'agent') {
+        if (embedded) parent.postMessage({type: 'host', action: 'tools', origin: guestOrigin()}, '*');
+        else location.href = 'tauri://localhost/vm.html?page=tools';
+        return;
+    }
+    showPage('models', true);
+    window.modelcatConnections.showSource(node.dataset.node === 'localModel' ? 'local' : 'cloud');
+});
+window.modelcatOpenBilling = record => {
+    billingOrigin = currentPage;
+    billingRequest = {record, binding: bindingIdentity(nodeSnapshot?.binding)};
+    $('#billed-request-id').textContent = record.id;
+    $('#billed-model').textContent = [record.model, record.source_label].filter(Boolean).join(' · ');
+    const status = record.status === 'ok' ? '已完成' : record.status ? '处理失败' : '处理中';
+    $('#billed-result').textContent = record.http_status ? status + ' · HTTP ' + record.http_status : status;
+    const count = new Intl.NumberFormat('zh-CN');
+    const usage = [[record.input_tokens, '输入'], [record.output_tokens, '输出'], [record.cache_tokens, '缓存']];
+    $('#billed-usage').textContent = usage.filter(([value]) => Number.isFinite(value))
+        .map(([value, label]) => label + ' ' + count.format(value)).join(' · ') || '暂无用量';
+    renderRequestSettlement(null, '正在查询网关…');
+    showPage('billing');
+    $('#request-billing-title').focus();
+    void refreshEarnings();
+};
+$('#return-to-trace').onclick = () => {
+    const record = billingRequest?.record;
+    billingRequest = null;
+    showPage(billingOrigin, false, false, true);
+    if (record) window.modelcatHistory.openRecord(record);
+};
+window.modelcatOpenTrial = () => {
+    showPage('local', true);
+    $('#local-test').click();
+};
+$('#workspace-next').onclick = () => {
+    if (nodeSnapshot?.local_models.length) {
+        window.modelcatOpenTrial();
+        return;
+    }
+    showPage('models', true);
+    window.modelcatConnections.showSource('all');
+    if (nodeSnapshot?.connections?.length) return;
+    const add = $('#connection-add');
+    if (add.getAttribute('aria-expanded') !== 'true') add.click();
+    else $('#connection-wizard-title').focus();
+};
+const initialPage = navigation.pageFor(pageParams.get('page'));
+showPage(initialPage && !initialPage.host ? initialPage.id : 'overview');
+if (embedded) {
+    window.addEventListener('message', event => {
+        if (event.source !== parent || !['tauri://localhost', 'null'].includes(event.origin)) return;
+        const message = event.data;
+        if (message?.type === 'arrival-complete') {
+            document.body.removeAttribute('data-workspace-arriving');
+            parent.postMessage({type: 'arrival-visible'}, '*');
+            if (message.focus && currentPage === 'overview') $('#page-title').focus({preventScroll: true});
+        } else if (message?.type === 'workspace-hidden') {
+            billingInBackground = true;
+            window.modelcatConnections.closePicker();
+            window.modelcatHistory.dismissDetail();
+        } else if (message?.type === 'runtime') {
+            window.dispatchEvent(new CustomEvent('modelcat-runtime', {detail: message.health}));
+        } else if (message?.type === 'focus' && message.page === currentPage) {
+            const origin = message.restore;
+            const trigger = document.getElementById(origin?.triggerId) ||
+                (origin?.node && document.querySelector('button[data-node="' + CSS.escape(origin.node) + '"]'));
+            (trigger || $('#page-title')).focus({preventScroll: true});
+            if (origin) window.scrollTo(0, origin.scroll);
+        } else if (message?.type === 'page') {
+            billingInBackground = false;
+            const destination = navigation.pageFor(message.page);
+            if (destination?.id === 'overview' || destination && !destination.host) {
+                const trace = message.restore && currentPage === 'billing' && billingOrigin === destination.id ? billingRequest?.record : null;
+                if (trace) billingRequest = null;
+                showPage(destination.id, false, true);
+                if (trace) window.modelcatHistory.openRecord(trace);
+                parent.postMessage({type: 'page-ready', page: destination.id, focus: message.focus === true && !trace, restore: message.restore}, '*');
+            }
+        }
+    });
+    if (!token) reportWorkspaceReady();
+}
+</script></body></html>

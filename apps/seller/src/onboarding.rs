@@ -51,7 +51,11 @@ fn read_key(path: Option<&Path>, stored: &Path) -> Result<String> {
         result?;
         value
     };
-    let key = key.trim().to_owned();
+    Ok(validate_key(&key)?.to_owned())
+}
+
+fn validate_key(key: &str) -> Result<&str> {
+    let key = key.trim();
     ensure!(
         !key.is_empty() && key.len() <= 512 && key.bytes().all(|b| b.is_ascii_graphic()),
         "Invalid API key"
@@ -59,12 +63,9 @@ fn read_key(path: Option<&Path>, stored: &Path) -> Result<String> {
     Ok(key)
 }
 
-pub async fn models(
-    base: &str,
-    key: &str,
-) -> Result<Vec<crate::model_capabilities::ModelDescriptor>> {
+async fn model_list(base: &str, key: &str, timeout: Duration) -> Result<Value> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
+        .timeout(timeout)
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     let mut response = client
@@ -72,6 +73,7 @@ pub async fn models(
         .bearer_auth(key)
         .send()
         .await?;
+    response.error_for_status_ref()?;
     ensure!(
         response.status().is_success(),
         "Gateway model listing failed (HTTP {}); verify the gateway URL and API key",
@@ -85,8 +87,38 @@ pub async fn models(
         );
         bytes.extend_from_slice(&chunk);
     }
-    let data: Value =
-        serde_json::from_slice(&bytes).context("Gateway did not return a JSON model list")?;
+    let data: Value = serde_json::from_slice(&bytes)
+        .context("Gateway did not return a JSON model list")?;
+    ensure!(data.get("data").is_some_and(Value::is_array), "Gateway model list has no data array");
+    Ok(data)
+}
+
+pub async fn verify_platform(gateway: &str, key: &str) -> Result<()> {
+    let base = gateway_api_base(gateway)
+        .map_err(|_| anyhow::anyhow!("平台网关地址无效，请检查 HTTPS 地址。"))?;
+    let key = validate_key(key)
+        .map_err(|_| anyhow::anyhow!("API Key 格式无效，请重新粘贴后重试。"))?;
+    if let Err(error) = model_list(&base, key, Duration::from_secs(10)).await {
+        if let Some(http) = error.downcast_ref::<reqwest::Error>() {
+            match http.status() {
+                Some(reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN) => {
+                    anyhow::bail!("平台拒绝了此 API Key，请检查后重试。");
+                }
+                Some(status) => anyhow::bail!("平台网关返回 HTTP {}，请稍后重试。", status.as_u16()),
+                None if http.is_timeout() => anyhow::bail!("连接平台网关超时。请检查网络后重试。"),
+                None => anyhow::bail!("无法连接平台网关，请检查网络后重试。"),
+            }
+        }
+        anyhow::bail!("平台网关未返回有效模型列表，请稍后重试。");
+    }
+    Ok(())
+}
+
+pub async fn models(
+    base: &str,
+    key: &str,
+) -> Result<Vec<crate::model_capabilities::ModelDescriptor>> {
+    let data = model_list(base, key, Duration::from_secs(20)).await?;
     let items = data
         .get("data")
         .and_then(Value::as_array)
@@ -119,17 +151,8 @@ pub async fn models(
     Ok(specs)
 }
 
-pub async fn setup(
-    client: &str,
-    gateway: &str,
-    key_file: Option<&Path>,
-    no_launch: bool,
-) -> Result<()> {
-    ensure!(
-        ["codex", "claude", "dsh"].contains(&client),
-        "Unsupported client"
-    );
-    let mut url = reqwest::Url::parse(gateway)?;
+fn gateway_api_base(gateway: &str) -> Result<String> {
+    let mut url = reqwest::Url::parse(gateway.trim())?;
     ensure!(
         url.username().is_empty()
             && url.password().is_none()
@@ -149,7 +172,20 @@ pub async fn setup(
         path.push_str("/v1");
     }
     url.set_path(&path);
-    let base = url.as_str().trim_end_matches('/').to_owned();
+    Ok(url.as_str().trim_end_matches('/').to_owned())
+}
+
+pub async fn setup(
+    client: &str,
+    gateway: &str,
+    key_file: Option<&Path>,
+    no_launch: bool,
+) -> Result<()> {
+    ensure!(
+        ["codex", "claude", "dsh"].contains(&client),
+        "Unsupported client"
+    );
+    let base = gateway_api_base(gateway)?;
     let origin = base.strip_suffix("/v1").context("Invalid API base")?;
     let home = crate::state::home_dir().context("Home directory unavailable")?;
     use sha2::{Digest, Sha256};

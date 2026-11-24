@@ -85,6 +85,14 @@ impl Offer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyMode {
+    #[default]
+    Rules,
+    Global,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -93,6 +101,8 @@ pub struct Config {
     pub concurrency: usize,
     pub offers: Vec<Offer>,
     pub upstream_proxy: String,
+    pub proxy_mode: ProxyMode,
+    pub claude_api_direct: bool,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -102,10 +112,25 @@ impl Default for Config {
             concurrency: 2,
             offers: vec![],
             upstream_proxy: "auto".into(),
+            proxy_mode: ProxyMode::Rules,
+            claude_api_direct: false,
         }
     }
 }
 impl Config {
+    pub fn dedicated_proxy(&self) -> Option<&str> {
+        let setting = self.upstream_proxy.as_str();
+        (!matches!(setting, "" | "auto" | "off")).then_some(setting)
+    }
+
+    pub fn claude_api_proxy_setting(&self) -> &str {
+        if self.proxy_mode == ProxyMode::Rules && self.claude_api_direct {
+            "off"
+        } else {
+            &self.upstream_proxy
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(
             (1..=32).contains(&self.concurrency),
@@ -117,6 +142,10 @@ impl Config {
             o.validate()?;
             ensure!(seen.insert(o.model.clone()), "duplicate public model");
         }
+        ensure!(
+            self.proxy_mode != ProxyMode::Global || self.dedicated_proxy().is_some(),
+            "workspace-wide proxy mode requires an explicit proxy address"
+        );
         if !matches!(self.upstream_proxy.as_str(), "auto" | "off") {
             asale_client_core::http::validate(&self.upstream_proxy).map_err(anyhow::Error::msg)?;
         }

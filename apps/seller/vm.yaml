@@ -1,0 +1,25 @@
+vmType: vz
+arch: aarch64
+cpus: 2
+memory: 2GiB
+disk: 8GiB
+images:
+- location: https://cloud-images.ubuntu.com/minimal/releases/noble/release-20261105/ubuntu-24.04-minimal-cloudimg-arm64.img
+  arch: aarch64
+  digest: sha256:3dc8370d923978d4b610fa7964d1b36ba040eefb43198809ca5bc8ac51777b18
+mounts: []
+containerd:
+  system: false
+  user: false
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+portForwards:
+- guestPort: 19700
+  hostPort: 19701
+  hostIP: 127.0.0.1
+  proto: tcp
+- guestPortRange: [1, 65535]
+  ignore: true
+  proto: any
+propagateProxyEnv: false

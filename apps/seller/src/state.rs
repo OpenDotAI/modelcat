@@ -50,22 +50,53 @@ pub struct LocalRecord {
     pub upstream_bytes_out: u64,
     pub gw_bytes_in: u64,
     pub gw_bytes_out: u64,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub source_label: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub http_status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_at: Option<FailureAt>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub gateway: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureAt {
+    ModelRoute,
+    Model,
 }
 #[derive(Default, Clone, Serialize)]
 pub struct Runtime {
     pub connection: String,
     pub last_error: String,
     pub connected_at: i64,
+    pub connecting_since: i64,
+    pub retry_at: i64,
     pub active: usize,
     pub gw_bytes_in: u64,
     pub gw_bytes_out: u64,
 }
 pub struct App {
+    pub vm_workspace: bool,
+    pub(crate) pricing: RwLock<crate::pricing::Catalog>,
     pub store: Arc<LocalStore>,
     pub config: RwLock<Config>,
     pub accounts: RwLock<Vec<Account>>,
+    pub ollama_models: RwLock<Vec<crate::ollama::Model>>,
     pub pool: Arc<Mutex<AccountPool>>,
     pub runtime: RwLock<Runtime>,
+    pub traffic: RwLock<crate::traffic::History>,
+    pub(crate) codex_device: tokio::sync::Mutex<Option<crate::connections::codex::Pending>>,
+    pub(crate) quote_submission: tokio::sync::Mutex<()>,
+    pub(crate) connection_setup: tokio::sync::Mutex<()>,
+    pub(crate) connection_requests: Mutex<std::collections::HashMap<String, crate::connections::ActiveRequest>>,
     pub token: String,
     pub api_token: String,
     pub flows: RwLock<std::collections::HashMap<String, serde_json::Value>>,
@@ -74,12 +105,19 @@ pub struct App {
     pub seen: Mutex<std::collections::HashMap<String, i64>>,
     pub records: Mutex<Vec<LocalRecord>>,
     pub mutation: tokio::sync::Mutex<()>,
+    pub claude_setup: tokio::sync::Mutex<()>,
+    #[cfg(feature = "oauth-preview")]
+    pub(crate) claude_oauth_preview: tokio::sync::Mutex<Option<crate::claude_oauth_preview::Session>>,
     pub stopping: std::sync::atomic::AtomicBool,
     pub shutdown_requested: tokio::sync::Notify,
     pub network_stop: tokio::sync::Notify,
 }
 impl App {
     pub async fn open() -> Result<Arc<Self>> {
+        Self::open_for_mode(std::env::var_os("MODELCAT_VM_WORKSPACE").is_some()).await
+    }
+
+    pub(crate) async fn open_for_mode(vm_workspace: bool) -> Result<Arc<Self>> {
         let dir = PathBuf::from(data_dir());
         std::fs::create_dir_all(&dir)?;
         #[cfg(unix)]
@@ -99,6 +137,12 @@ impl App {
             .get_setting("node.accounts")
             .await?
             .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let ollama_models = store
+            .get_setting("node.ollama_models")
+            .await?
+            .map(|value| serde_json::from_str(&value))
+            .transpose()?
             .unwrap_or_default();
         let binding =
             keychain::get("node.binding")?.and_then(|s| serde_json::from_str::<Binding>(&s).ok());
@@ -138,17 +182,28 @@ impl App {
                 std::fs::Permissions::from_mode(0o600),
             )?;
         }
-        let records = store
+        let records: Vec<LocalRecord> = store
             .get_setting("node.records")
             .await?
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        crate::token_usage::initialize(&store.pool, &records).await?;
+        let traffic = crate::traffic::History::load(&store.pool, now()).await?;
+        let (gw_bytes_in, gw_bytes_out) = traffic.totals();
         let app = Arc::new(Self {
+            vm_workspace,
+            pricing: Default::default(),
             store,
             config: RwLock::new(config),
             accounts: RwLock::new(accounts),
+            ollama_models: RwLock::new(ollama_models),
             pool: Arc::new(Mutex::new(AccountPool::new(Strategy::RoundRobin))),
-            runtime: RwLock::new(Runtime::default()),
+            runtime: RwLock::new(Runtime { gw_bytes_in, gw_bytes_out, ..Runtime::default() }),
+            traffic: RwLock::new(traffic),
+            codex_device: Default::default(),
+            quote_submission: Default::default(),
+            connection_setup: Default::default(),
+            connection_requests: Default::default(),
             token,
             api_token,
             flows: Default::default(),
@@ -157,6 +212,9 @@ impl App {
             seen: Default::default(),
             records: Mutex::new(records),
             mutation: Default::default(),
+            claude_setup: Default::default(),
+            #[cfg(feature = "oauth-preview")]
+            claude_oauth_preview: Default::default(),
             stopping: Default::default(),
             shutdown_requested: Default::default(),
             network_stop: Default::default(),
@@ -167,6 +225,27 @@ impl App {
     pub async fn save_config(&self, cfg: Config) -> Result<()> {
         cfg.validate()?;
         let _guard = self.mutation.lock().await;
+        for model in self.ollama_models.read().await.iter() {
+            let id = model.id();
+            anyhow::ensure!(
+                !cfg.offers.iter().any(|offer| crate::ollama::conflicts(offer, &id)),
+                "offer conflicts with registered model {id}"
+            );
+        }
+        if self.config.read().await.claude_api_proxy_setting() != cfg.claude_api_proxy_setting() {
+            let _setup = self.claude_setup.lock().await;
+            crate::claude_api::require_recheck()?;
+            return self.persist_config(cfg).await;
+        }
+        self.persist_config(cfg).await
+    }
+    pub async fn set_paused(&self, paused: bool) -> Result<()> {
+        let _guard = self.mutation.lock().await;
+        let mut cfg = self.config.read().await.clone();
+        cfg.paused = paused;
+        self.persist_config(cfg).await
+    }
+    async fn persist_config(&self, cfg: Config) -> Result<()> {
         self.store
             .set_setting("node.config", &serde_json::to_string(&cfg)?)
             .await?;
@@ -205,6 +284,7 @@ impl App {
         let accounts = self.accounts.read().await;
         let runtime = accounts
             .iter()
+            .filter(|_| !self.vm_workspace)
             .map(|a| {
                 let models: Vec<_> = cfg
                     .offers
@@ -238,17 +318,14 @@ impl App {
     }
     pub async fn add_record(&self, record: LocalRecord) {
         let _guard = self.mutation.lock().await;
-        let encoded = {
-            let mut records = self.records.lock().unwrap_or_else(|e| e.into_inner());
-            records.push(record);
-            if records.len() > 1000 {
-                let excess = records.len() - 1000;
-                records.drain(..excess);
-            }
-            serde_json::to_string(&*records).unwrap_or_default()
-        };
-        if let Err(e) = self.store.set_setting("node.records", &encoded).await {
-            tracing::error!("record persistence failed: {e}");
+        let mut recent = self.records.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        recent.push(record.clone());
+        let excess = recent.len().saturating_sub(1000);
+        recent.drain(..excess);
+        let encoded = serde_json::to_string(&recent).expect("serializable request records");
+        match crate::token_usage::save(&self.store.pool, &record, &encoded).await {
+            Ok(()) => *self.records.lock().unwrap_or_else(|e| e.into_inner()) = recent,
+            Err(e) => tracing::error!("record persistence failed: {e}"),
         }
     }
 }

@@ -1,5 +1,9 @@
 pub mod accounts;
+mod claude_api;
+#[cfg(feature = "oauth-preview")]
+mod claude_oauth_preview;
 pub mod config;
+mod connections;
 pub mod control;
 pub mod desktop_install;
 pub mod discovery;
@@ -7,8 +11,12 @@ pub mod gateway;
 pub mod kiro;
 pub mod model_capabilities;
 pub mod onboarding;
+pub mod ollama;
+pub mod pricing;
 pub mod runner;
 pub mod state;
+pub mod traffic;
+mod token_usage;
 
 #[cfg(test)]
 mod tests;

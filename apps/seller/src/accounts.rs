@@ -35,7 +35,30 @@ pub struct Account {
 }
 
 impl App {
+    pub(crate) fn require_legacy_accounts(&self) -> Result<()> {
+        ensure!(
+            !self.vm_workspace,
+            "请在「模型配置」连接 Claude API Key 或登记 Ollama 模型。"
+        );
+        Ok(())
+    }
+
+    pub(crate) async fn offer_source_allowed(&self, provider: &str, model: &str) -> bool {
+        if crate::connections::is_model_id(model) {
+            return crate::connections::can_serve(provider, model);
+        }
+        if !self.vm_workspace {
+            return true;
+        }
+        match provider {
+            "claude" => crate::claude_api::sale_models(&*self.config.read().await).iter().any(|id| id == model),
+            "custom" => crate::ollama::sale_model(self, provider, model).await.is_some(),
+            _ => false,
+        }
+    }
+
     pub async fn import_cli(&self, provider: &str) -> Result<usize> {
+        self.require_legacy_accounts()?;
         if provider == "kiro" {
             return crate::kiro::import_local(self).await;
         }
@@ -63,6 +86,7 @@ impl App {
         origin: &str,
         base: Option<String>,
     ) -> Result<()> {
+        self.require_legacy_accounts()?;
         let _guard = self.mutation.lock().await;
         let id = cred.account_hint.clone().unwrap_or_else(|| {
             format!("{}-{}", cred.provider, cli_import::token_fingerprint(&cred))
@@ -101,6 +125,7 @@ impl App {
         self.save_accounts(accounts).await
     }
     pub async fn begin_oauth(self: &Arc<Self>, provider: &str) -> Result<Value> {
+        self.require_legacy_accounts()?;
         ensure!(
             matches!(provider, "claude" | "codex"),
             "unsupported provider"
@@ -161,6 +186,7 @@ impl App {
         Ok(json!({"flow_id":id,"auth_url":url}))
     }
     pub async fn set_account_enabled(&self, provider: &str, id: &str, enabled: bool) -> Result<()> {
+        self.require_legacy_accounts()?;
         let _guard = self.mutation.lock().await;
         let mut accounts = self.accounts.read().await.clone();
         let a = accounts
@@ -171,6 +197,9 @@ impl App {
         self.save_accounts(accounts).await
     }
     pub async fn refresh_accounts(&self) {
+        if self.vm_workspace {
+            return;
+        }
         let accounts = self.accounts.read().await.clone();
         for a in accounts {
             if a.provider == "custom"
@@ -215,10 +244,45 @@ impl App {
         if cfg.paused {
             return vec![];
         }
+        self.available_offers(&cfg).await
+    }
+    pub(crate) async fn local_catalog(&self) -> (Vec<String>, std::collections::BTreeMap<String, String>) {
+        let cfg = self.config.read().await.clone();
+        let mut models = self.available_offers(&cfg).await;
+        if let Ok(Some(source)) = crate::claude_api::source() {
+            models.extend(source.models);
+        }
+        models.extend(self.ollama_models.read().await.iter().map(|model| model.id()));
+        #[cfg(feature = "oauth-preview")]
+        if crate::claude_oauth_preview::model_ready(self).await {
+            models.push(crate::claude_oauth_preview::MODEL.into());
+        }
+        let mut reserved: std::collections::HashSet<&str> = models.iter().map(String::as_str).collect();
+        for offer in cfg.offers.iter().filter(|offer| offer.enabled) {
+            reserved.extend([offer.model.as_str(), offer.upstream_model.as_str()]);
+        }
+        let (ids, aliases) = crate::connections::local_ids(&reserved);
+        models.extend(ids);
+        models.sort_unstable();
+        models.dedup();
+        (models, aliases)
+    }
+    pub async fn local_models(&self) -> Vec<String> {
+        self.local_catalog().await.0
+    }
+    async fn available_offers(&self, cfg: &crate::config::Config) -> Vec<String> {
+        let local = self.ollama_models.read().await;
+        let claude = if self.vm_workspace { crate::claude_api::sale_models(cfg) } else { vec![] };
         let pool = self.pool.lock().unwrap_or_else(|e| e.into_inner());
         cfg.offers
             .iter()
-            .filter(|o| o.enabled && pool.any_sellable(&o.provider, &o.upstream_model, now()))
+            .filter(|o| o.enabled && (
+                crate::connections::can_serve(&o.provider, &o.upstream_model)
+                ||
+                (o.provider == "custom" && local.iter().any(|model| model.id() == o.upstream_model))
+                || (o.provider == "claude" && claude.contains(&o.upstream_model))
+                || pool.any_sellable(&o.provider, &o.upstream_model, now())
+            ))
             .map(|o| o.model.clone())
             .collect()
     }

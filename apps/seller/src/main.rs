@@ -1,3 +1,12 @@
+#[cfg(feature = "desktop")]
+mod codex_login;
+#[cfg(feature = "desktop")]
+mod desktop;
+#[cfg(feature = "desktop")]
+mod vm;
+#[cfg(unix)]
+mod tool_api;
+
 use anyhow::{ensure, Result};
 use channel_node::{
     config::{Binding, Config},
@@ -8,7 +17,7 @@ use clap::{Parser, Subcommand};
 use std::{
     fs,
     io::IsTerminal,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::Duration,
 };
@@ -20,7 +29,7 @@ use std::{
     about = "Model service provider node · CLI and WebUI for a private channel gateway"
 )]
 struct Cli {
-    #[arg(long, default_value = "127.0.0.1:19700", global = true)]
+    #[arg(long, default_value = if cfg!(feature = "desktop") { "127.0.0.1:19701" } else { "127.0.0.1:19700" }, global = true)]
     bind: String,
     #[arg(long, global = true)]
     data_dir: Option<PathBuf>,
@@ -29,6 +38,14 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Action {
+    /// Check a platform key against the gateway model catalogue without making an inference request.
+    VerifyPlatform {
+        #[arg(long)]
+        gateway: String,
+        /// Read the key from standard input when this argument is omitted.
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+    },
     /// Create/update an isolated buyer gateway app; fetches models without inference.
     SetupClient {
         #[arg(long, value_parser=["codex","claude","dsh"])]
@@ -43,9 +60,21 @@ enum Action {
     /// Start the local service and open its management UI (the default for ModelCat.app).
     Launch,
     Serve,
+    #[cfg(unix)]
+    #[command(hide = true)]
+    ToolRelay,
     Start,
     Stop,
     Restart,
+    /// Stop the Mac workspace VM after closing its window.
+    #[cfg(feature = "desktop")]
+    WorkspaceStop,
+    /// Manage an isolated programming tool in the Mac workspace VM.
+    #[cfg(feature = "desktop")]
+    Tool {
+        #[command(subcommand)]
+        action: ToolAction,
+    },
     Status,
     Logs {
         #[arg(long, default_value_t = 100)]
@@ -55,6 +84,16 @@ enum Action {
     Url,
     /// Print the local model API key; it cannot access management endpoints.
     ApiKey,
+    /// Discover and register local Ollama models in a running workspace.
+    Upstream {
+        #[command(subcommand)]
+        action: UpstreamAction,
+    },
+    /// Check cloud provider access from the workspace without sending credentials.
+    Network {
+        #[command(subcommand)]
+        action: NetworkAction,
+    },
     Bind {
         #[arg(long)]
         file: PathBuf,
@@ -90,6 +129,46 @@ enum Action {
     },
 }
 
+#[derive(Subcommand)]
+enum UpstreamAction {
+    /// List the models reachable by the workspace at an Ollama origin.
+    Discover { url: String },
+    /// Register one Ollama model for local inference.
+    Register { url: String, model: String },
+}
+
+#[derive(Subcommand)]
+enum NetworkAction {
+    /// Check the Claude API or the Claude OAuth server endpoints.
+    Check {
+        #[arg(value_parser = ["claude", "claude-oauth"])]
+        provider: String,
+    },
+}
+
+#[cfg(feature = "desktop")]
+#[derive(Subcommand)]
+enum ToolAction {
+    /// Authorize a private working directory inside the workspace VM.
+    Authorize { tool: String },
+    Start { tool: String },
+    Stop { tool: String },
+    Restart { tool: String },
+    Status { tool: String },
+    Logs { tool: String },
+    Autostart {
+        tool: String,
+        #[arg(value_parser = ["enable", "disable"])]
+        state: String,
+    },
+    /// Run the CLI in its existing container.
+    Run {
+        tool: String,
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -105,6 +184,23 @@ async fn main() -> Result<()> {
     let base = format!("http://{}", cli.bind);
     let action = cli.command.unwrap_or(Action::Launch);
     match &action {
+        #[cfg(unix)]
+        Action::ToolRelay => tool_api::relay().await,
+        #[cfg(feature = "desktop")]
+        Action::Tool { action } => vm::run_tool_command(cli.data_dir.as_deref(), action),
+        #[cfg(feature = "desktop")]
+        Action::WorkspaceStop => vm::stop_workspace_command(cli.data_dir.as_deref()).await,
+        Action::VerifyPlatform { gateway, key_file } => {
+            use std::io::Read;
+            let mut key = String::new();
+            match key_file {
+                Some(path) => key = std::fs::read_to_string(path)?,
+                None => {
+                    std::io::stdin().take(1024).read_to_string(&mut key)?;
+                }
+            }
+            channel_node::onboarding::verify_platform(gateway, &key).await
+        }
         Action::SetupClient {
             client,
             gateway,
@@ -114,10 +210,17 @@ async fn main() -> Result<()> {
             channel_node::onboarding::setup(client, gateway, key_file.as_deref(), *no_launch).await
         }
         Action::Launch => {
-            if !healthy(&base).await {
-                start(&cli.bind).await?;
+            #[cfg(feature = "desktop")]
+            {
+                desktop::run()
             }
-            open_ui(&base)
+            #[cfg(not(feature = "desktop"))]
+            {
+                if !healthy(&base).await {
+                    start(&cli.bind).await?;
+                }
+                open_ui(&base)
+            }
         }
         Action::Serve => serve(&cli.bind).await,
         Action::Start => start(&cli.bind).await,
@@ -148,8 +251,36 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Action::Status => {
-            let status = rpc(&base, "/api/status", None).await?;
+            let status = management_rpc(&base, cli.data_dir.as_deref(), "/api/status", None).await?;
             println!("{}", serde_json::to_string_pretty(&status)?);
+            Ok(())
+        }
+        Action::Upstream { action } => {
+            let (path, body) = match action {
+                UpstreamAction::Discover { url } => (
+                    "/api/ollama/discover", serde_json::json!({"origin":url}),
+                ),
+                UpstreamAction::Register { url, model } => (
+                    "/api/ollama/register", serde_json::json!({"origin":url,"model":model}),
+                ),
+            };
+            #[cfg(feature = "desktop")]
+            if let Some((origin, token)) = vm::workspace_connection(cli.data_dir.as_deref())? {
+                println!("{}", rpc_authenticated(&origin, path, Some(body), &token).await?);
+                return Ok(());
+            }
+            println!("{}", rpc(&base, path, Some(body)).await?);
+            Ok(())
+        }
+        Action::Network { action: NetworkAction::Check { provider } } => {
+            let path = if provider == "claude-oauth" { "/api/proxy/claude-oauth" } else { "/api/proxy/test" };
+            let body = Some(serde_json::json!({}));
+            #[cfg(feature = "desktop")]
+            if let Some((origin, token)) = vm::workspace_connection(cli.data_dir.as_deref())? {
+                println!("{}", rpc_authenticated(&origin, path, body, &token).await?);
+                return Ok(());
+            }
+            println!("{}", rpc(&base, path, body).await?);
             Ok(())
         }
         Action::Logs { lines } => {
@@ -176,6 +307,14 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Action::ApiKey => {
+            #[cfg(feature = "desktop")]
+            if let Some((origin, token)) = vm::workspace_connection(cli.data_dir.as_deref())? {
+                let response = rpc_authenticated(&origin, "/api/local-key", None, &token).await?;
+                let key = response["key"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("workspace did not return a local model API key"))?;
+                println!("{key}");
+                return Ok(());
+            }
             println!(
                 "{}",
                 fs::read_to_string(PathBuf::from(state::data_dir()).join("local-api.token"))?
@@ -186,7 +325,7 @@ async fn main() -> Result<()> {
         Action::Bind { file } => {
             let b: Binding = serde_json::from_slice(&fs::read(file)?)?;
             b.validate()?;
-            rpc(&base, "/api/bind", Some(serde_json::to_value(b)?)).await?;
+            management_rpc(&base, cli.data_dir.as_deref(), "/api/bind", Some(serde_json::to_value(b)?)).await?;
             println!("Node bound. Remove or securely store the binding file.");
             Ok(())
         }
@@ -205,22 +344,23 @@ async fn main() -> Result<()> {
         Action::Config { file } => {
             let cfg: Config = serde_json::from_slice(&fs::read(file)?)?;
             cfg.validate()?;
-            rpc(&base, "/api/config", Some(serde_json::to_value(cfg)?)).await?;
+            management_rpc(&base, cli.data_dir.as_deref(), "/api/config", Some(serde_json::to_value(cfg)?)).await?;
             println!("Configuration saved.");
             Ok(())
         }
         Action::Quotes => {
             println!(
                 "{}",
-                rpc(&base, "/api/quotes/submit", Some(serde_json::json!({}))).await?
+                management_rpc(&base, cli.data_dir.as_deref(), "/api/quotes/submit", Some(serde_json::json!({}))).await?
             );
             Ok(())
         }
         Action::Probe { model } => {
             println!(
                 "{}",
-                rpc(
+                management_rpc(
                     &base,
+                    cli.data_dir.as_deref(),
                     "/api/probe",
                     Some(serde_json::json!({"model":model}))
                 )
@@ -229,8 +369,9 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Action::Pause | Action::Resume => {
-            rpc(
+            management_rpc(
                 &base,
+                cli.data_dir.as_deref(),
                 "/api/pause",
                 Some(serde_json::json!({"paused":matches!(action,Action::Pause)})),
             )
@@ -291,14 +432,33 @@ fn read_token() -> Result<String> {
     )
 }
 async fn rpc(base: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
-    let http = reqwest::Client::new();
+    rpc_authenticated(base, path, body, &read_token()?).await
+}
+
+async fn management_rpc(
+    base: &str,
+    _directory: Option<&Path>,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    #[cfg(feature = "desktop")]
+    if base == "http://127.0.0.1:19701" {
+        if let Some((origin, token)) = vm::workspace_connection(_directory)? {
+            return rpc_authenticated(&origin, path, body, &token).await;
+        }
+    }
+    rpc(base, path, body).await
+}
+
+async fn rpc_authenticated(base: &str, path: &str, body: Option<serde_json::Value>, token: &str) -> Result<serde_json::Value> {
+    let http = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).build()?;
     let req = if let Some(body) = body {
         http.post(format!("{base}{path}")).json(&body)
     } else {
         http.get(format!("{base}{path}"))
     };
     let response = req
-        .bearer_auth(read_token()?)
+        .bearer_auth(token)
         .timeout(Duration::from_secs(30))
         .send()
         .await?;
@@ -353,6 +513,7 @@ async fn start(bind: &str) -> Result<()> {
     }
     anyhow::bail!("node did not become ready; inspect logs (process may still be starting)")
 }
+#[cfg(not(feature = "desktop"))]
 fn open_ui(base: &str) -> Result<()> {
     let token = read_token()?;
     #[cfg(target_os = "macos")]
@@ -379,7 +540,19 @@ async fn serve(bind: &str) -> Result<()> {
         .init();
     let listener = tokio::net::TcpListener::bind(bind).await?;
     let app = App::open().await?;
+    #[cfg(unix)]
+    let (stop_tools, tool_shutdown) = tokio::sync::watch::channel(false);
+    #[cfg(unix)]
+    let tools = std::env::var_os("MODELCAT_TOOL_API_DIR")
+        .map(|dir| tool_api::serve(
+            &PathBuf::from(dir), &app.api_token, control::local_router(app.clone()), tool_shutdown,
+        ))
+        .transpose()?;
+    channel_node::traffic::checkpoint(&app, true).await?;
+    let (stop_traffic, traffic_shutdown) = tokio::sync::oneshot::channel();
+    let traffic = tokio::spawn(channel_node::traffic::collect(app.clone(), traffic_shutdown));
     let gateway = tokio::spawn(gateway::supervise(app.clone()));
+    let prices = tokio::spawn(channel_node::pricing::maintain(app.clone()));
     let refresh_app = app.clone();
     let refresh = tokio::spawn(async move {
         loop {
@@ -395,7 +568,7 @@ async fn serve(bind: &str) -> Result<()> {
         std::process::id().to_string(),
     )?;
     let draining = app.clone();
-    axum::serve(listener, control::router(app))
+    let result = axum::serve(listener, control::router(app))
         .with_graceful_shutdown(async move {
             #[cfg(unix)]
             {
@@ -406,12 +579,23 @@ async fn serve(bind: &str) -> Result<()> {
             }
             #[cfg(not(unix))]
             let _ = tokio::signal::ctrl_c().await;
+            #[cfg(unix)]
+            let _ = stop_tools.send(true);
             draining.drain().await;
         })
-        .await?;
+        .await;
+    prices.abort();
     gateway.abort();
     refresh.abort();
+    let _ = gateway.await;
+    let _ = stop_traffic.send(());
+    #[cfg(unix)]
+    if let Some(tools) = tools {
+        let _ = tools.await;
+    }
     let _ = fs::remove_file(PathBuf::from(state::data_dir()).join("node.pid"));
+    traffic.await??;
+    result?;
     Ok(())
 }
 

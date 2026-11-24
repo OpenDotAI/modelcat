@@ -119,9 +119,10 @@ fn authorize_custom(
     headers: &serde_json::Map<String, serde_json::Value>,
 ) -> reqwest::RequestBuilder {
     match wire {
+        Wire::Openai | Wire::Responses if token.is_empty() => builder,
         Wire::Openai | Wire::Responses => builder.header("authorization", format!("Bearer {token}")),
         Wire::Claude => {
-            let b = builder.header("x-api-key", token);
+            let b = if token.is_empty() { builder } else { builder.header("x-api-key", token) };
             // The gateway's Claude builder sends this already; a proxy that
             // rewrites headers is the case worth covering, and a required
             // header missing costs the whole sale.
@@ -131,6 +132,7 @@ fn authorize_custom(
                 b.header("anthropic-version", ANTHROPIC_VERSION)
             }
         }
+        Wire::Gemini if token.is_empty() => builder,
         Wire::Gemini => builder.header("x-goog-api-key", token),
     }
 }
@@ -831,19 +833,15 @@ pub async fn execute(
         // the fact: without this, "was it cloaked?" can only be guessed from the
         // `system=NNNB` in the shape string.
         let mut cloaked = false;
-        if is_claude(&provider) {
+        if claude_identity {
             if let Some(patched) = with_claude_code_system(&body, &session_id) {
                 body = patched;
                 cloaked = true;
             }
-            if claude_identity {
-                // Read off the *patched* body: the beta set is per-request — tools,
-                // thinking and the model all move it — so it can only be assembled
-                // once the body is final.
-                builder = builder.header("anthropic-beta", claude_code_betas(&body, true));
-                for (k, v) in claude_identity_headers(&session_id) {
-                    builder = builder.header(k, v);
-                }
+            // Read off the patched body: tools, thinking and the model affect the beta set.
+            builder = builder.header("anthropic-beta", claude_code_betas(&body, true));
+            for (k, v) in claude_identity_headers(&session_id) {
+                builder = builder.header(k, v);
             }
         }
         // A custom endpoint may know this model by another name — an aggregator
@@ -1024,6 +1022,14 @@ pub async fn execute(
             }
         }
 
+        if (300..400).contains(&status) && custom.is_some() {
+            tokens.report(&provider, &lease.account_id, &model, TaskOutcome::ServerError);
+            if let Some(r) = records {
+                r.record(&task_id, &provider, &lease.account_id, &model, &Usage::default(), "upstream_redirect").await;
+            }
+            send_error(out, &task_id, protocol::codes::UPSTREAM_5XX, "upstream returned an unexpected redirect", true);
+            return;
+        }
         if status >= 400 {
             let reset_at = retry_after_reset(&resp);
             // The upstream's own words are the only way to tell a real quota

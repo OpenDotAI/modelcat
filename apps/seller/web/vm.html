@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ModelCat</title>
+<link rel="stylesheet" href="workspace.css?v=monitor2">
+<link rel="icon" href="modelcat.svg" type="image/svg+xml">
+<body class="workspace desktop" data-entry="loading">
+<aside class="sidebar" data-shell="host"></aside>
+<script src="navigation.js"></script>
+<div class="desktop-content">
+<nav id="return-bar" aria-label="返回来源页" hidden><button id="context-back" class="quiet-button" type="button" data-icon="back"><span></span></button></nav>
+<div class="desktop-stage">
+<main class="workspace-main">
+<button id="back-to-sign-in" type="button" class="quiet-button" data-icon="back" hidden>返回登录</button>
+<header class="page-heading"><h1 id="page-title" tabindex="-1">工作区</h1></header>
+<div id="entry" class="workspace-entry" hidden>
+    <div class="entry-visual">
+        <div class="brand"><img src="modelcat.svg" width="38" height="38" alt="">ModelCat</div>
+        <div class="topology" data-topology="intro" data-logo="modelcat.svg" role="img"
+             aria-label="接入云端与本地模型，供自己的 Agent 使用，也可发布服务接单并获取收益。"></div>
+    </div>
+    <div id="platform" class="entry-content" hidden>
+        <h1 id="login-title" tabindex="-1">登录 ModelCat</h1>
+        <p class="entry-intro">验证后进入 ModelCat 首页。</p>
+        <form id="platform-form" class="desktop-form">
+            <div class="form-field">
+                <label for="key">平台 API Key</label>
+                <input id="key" type="password" autocomplete="off" maxlength="512" aria-describedby="platform-status" required>
+            </div>
+            <button id="platform-submit" class="primary" type="submit">验证并继续</button>
+        </form>
+        <p id="platform-status" class="entry-feedback" role="status"></p>
+        <a id="platform-link" class="entry-platform-link" target="_blank" rel="noopener noreferrer">获取 API Key · <span id="platform-host"></span><span aria-hidden="true">↗</span></a>
+    </div>
+</div>
+<div id="workspace" hidden>
+    <button id="start" class="workspace-launch" type="button" data-state="checking" aria-disabled="true" aria-label="正在检查工作区…" aria-describedby="status">
+        <span class="workspace-launch-content">
+            <span class="topology-core" aria-hidden="true"><img src="modelcat.svg" alt=""><span id="workspace-power" data-icon="power" hidden></span></span>
+            <span class="workspace-launch-label" id="workspace-action" aria-hidden="true" hidden></span>
+        </span>
+    </button>
+    <div id="workspace-feedback"></div>
+</div>
+<div class="notice-stack" id="host-feedback">
+    <p id="internet-status" class="connection-status" role="status" hidden>当前离线。已准备好的工作区可使用本地模型。首次安装依赖、云端调用和平台接单需要联网。</p>
+    <div id="status" role="status" class="desktop-status"></div>
+</div>
+<div id="account" hidden>
+    <section class="desktop-panel platform-identity" aria-labelledby="platform-title">
+        <span class="identity-symbol" data-icon="shield" aria-hidden="true"></span>
+        <div><h2 id="platform-title">ModelCat 平台账号</h2><output id="account-state" class="state-badge">正在检查</output></div>
+        <button type="button" id="platform-logout" class="quiet-button" disabled>退出平台账号</button>
+    </section>
+    <section class="desktop-panel account-panel" aria-labelledby="account-title">
+        <div class="account-heading">
+            <h2 id="account-title" class="section-title" data-icon="terminal">工作区 Codex 账号</h2>
+            <div class="controls"><button type="button" id="account-recheck" class="quiet-button" data-icon="refresh">检查状态</button><output id="codex-login-state" class="state-badge">正在检查</output></div>
+        </div>
+        <div class="controls account-profiles">
+            <div class="form-field"><label for="account-profile">当前账号</label>
+                <select id="account-profile"><option value="default">默认账号</option></select></div>
+        </div>
+        <form id="account-form">
+            <div class="account-connect">
+                <p id="account-login-hint" class="muted">使用你的 ChatGPT 账号授权工作区里的 Codex。</p>
+                <div class="controls">
+                    <button class="primary" id="account-start">连接 Codex</button>
+                    <button type="button" id="account-cancel" hidden>取消授权</button>
+                    <button class="quiet-button" type="button" id="account-logout" hidden>断开此账号</button>
+                    <button type="button" class="quiet-button" id="account-add-profile" aria-expanded="false" aria-controls="account-profile-form" data-icon="plus" hidden>连接其他账号</button>
+                </div>
+            </div>
+        </form>
+        <form id="account-profile-form" hidden>
+            <div class="form-field"><label for="account-profile-name">本机备注（可选）</label>
+                <input id="account-profile-name" maxlength="64" placeholder="例如：工作账号"></div>
+            <div class="controls"><button class="primary" type="submit">前往授权</button>
+                <button type="button" class="quiet-button" id="account-dismiss">取消</button></div>
+        </form>
+        <div class="login-options"><button type="button" class="panel-action" data-panel-label="配置登录代理" data-panel-close="收起" aria-controls="login-proxy-fields" aria-expanded="false">配置登录代理</button><div id="login-proxy-fields" hidden>
+            <div class="form-field"><label for="account-proxy">登录代理地址（可选）</label>
+                <input form="account-form" type="url" id="account-proxy" placeholder="http://127.0.0.1:7890" autocomplete="off" spellcheck="false"></div>
+        </div></div>
+        <p id="account-status" role="status"></p>
+    </section>
+</div>
+<div id="settings" hidden>
+    <section class="desktop-panel preference-group">
+        <div class="section-toolbar">
+            <h2 class="section-title" id="appearance-title">外观</h2>
+            <fieldset class="segments" id="appearance" aria-labelledby="appearance-title" disabled>
+                <label><input type="radio" name="appearance" value="system" checked><span>随系统</span></label>
+                <label><input type="radio" name="appearance" value="light"><span>浅色</span></label>
+                <label><input type="radio" name="appearance" value="dark"><span>深色</span></label>
+            </fieldset>
+        </div>
+        <p id="appearance-error" role="alert" hidden></p>
+    </section>
+    <section class="desktop-panel preference-group">
+        <h2 class="section-title" data-icon="folder">工作区存储</h2>
+        <div class="pref-line"><div><strong>存储目录</strong><code id="path-label">正在读取</code>
+            <p id="storage-hint" class="muted" hidden></p></div>
+            <button id="choose" aria-describedby="storage-hint" disabled>更换目录…</button></div>
+    </section>
+    <section class="desktop-panel preference-group">
+        <h2 class="section-title" data-icon="power">运行偏好</h2>
+        <div class="setting-row pref-line"><div><label for="stop-on-exit">退出时关闭工作区</label>
+            <p id="exit-detail" class="muted">关闭主窗口或退出 ModelCat 时，停止工作区和其中的服务。</p></div>
+            <input id="stop-on-exit" type="checkbox" switch role="switch" aria-describedby="exit-detail" disabled></div>
+    </section>
+    <section class="desktop-panel preference-group">
+        <h2 class="section-title" data-icon="network">网络连接</h2>
+        <div class="pref-line"><div><strong>代理与出口</strong><p id="network-detail" class="muted"></p></div>
+            <button id="open-network">打开网络设置</button></div>
+    </section>
+    <p id="exit-save-status" class="muted" role="status"></p>
+    <p id="settings-error" role="alert" hidden></p><button type="button" id="exit-retry" hidden>重新读取运行偏好</button>
+</div>
+<section id="offline" class="desktop-panel" hidden>
+    <h2 id="offline-title" class="section-title" data-icon="chip">工作区已停止</h2>
+    <p id="offline-detail" class="muted">启动本机工作区后，即可使用此功能。</p>
+    <button id="offline-start" class="primary" data-icon="play">启动工作区</button>
+</section>
+<section id="tools" aria-label="工具管理" hidden>
+    <section class="tool-environment" aria-labelledby="tool-vm-title">
+        <div class="tool-environment-head"><div><h2 class="section-title" id="tool-vm-title" data-icon="chip">工作区虚拟机</h2>
+            <small id="tool-vm-state" role="status"></small><small id="vm-free"></small></div>
+            <button id="monitor-open" data-icon="activity" hidden>资源监控</button>
+            <button id="tools-start-workspace" class="primary" data-icon="play" hidden><span>启动工作区</span></button></div>
+        <section id="resource-settings" aria-labelledby="limits-title"><div class="panel-action-row" data-panel-row><div><h3 id="limits-title" class="section-title" data-icon="sliders">资源上限</h3><small id="resource-summary"></small></div><button type="button" class="panel-action" data-panel-label="调整" data-panel-close="收起" aria-controls="resource-editor" aria-expanded="false">调整</button></div>
+            <div id="resource-editor" hidden>
+            <form id="vm-limits"><fieldset disabled>
+                <div class="resource-field"><label for="limit-cpus">CPU <small>核</small></label>
+                    <div class="resource-stepper"><button type="button" data-step="-1" aria-label="减少CPU">−</button>
+                    <input id="limit-cpus" name="cpus" type="number" min="1" required>
+                    <button type="button" data-step="1" aria-label="增加CPU">+</button></div></div>
+                <div class="resource-field"><label for="limit-memory_gib">内存 <small>GiB</small></label>
+                    <div class="resource-stepper"><button type="button" data-step="-1" aria-label="减少内存">−</button>
+                    <input id="limit-memory_gib" name="memory_gib" type="number" min="1" required>
+                    <button type="button" data-step="1" aria-label="增加内存">+</button></div></div>
+                <div class="resource-field"><label for="limit-disk_gib">磁盘 <small>GiB</small></label>
+                    <div class="resource-stepper"><button type="button" data-step="-1" aria-label="减少磁盘">−</button>
+                    <input id="limit-disk_gib" name="disk_gib" type="number" min="1" required>
+                    <button type="button" data-step="1" aria-label="增加磁盘">+</button></div></div>
+                <button type="submit" disabled>保存</button></fieldset></form>
+            <small>下次启动生效 · 磁盘仅支持扩容</small></div></section>
+        <p id="limits-feedback" role="status" hidden></p>
+        <div class="tool-setting"><span class="tool-setting-label"><span data-icon="network"></span><strong>模型出站网络</strong></span>
+            <button id="tools-network" class="quiet-button">网络设置</button></div>
+    </section>
+    <section aria-labelledby="tool-container-title"><h2 class="section-title" id="tool-container-title">虚拟机内的工具</h2>
+    <fieldset class="tool-picker" id="tool-picker">
+        <legend class="sr-only">选择工具</legend>
+        <label><input type="radio" name="workspace-tool" value="claude" checked>
+            <span class="tool-mark" data-icon="terminal"></span><span><strong>Claude Code</strong><small>Anthropic</small></span>
+            <span class="tool-selected" data-icon="check"></span>
+        </label>
+        <label><input type="radio" name="workspace-tool" value="codex">
+            <span class="tool-mark" data-icon="terminal"></span><span><strong>Codex</strong><small>OpenAI</small></span>
+            <span class="tool-selected" data-icon="check"></span>
+        </label>
+    </fieldset>
+    <div class="tool-environment" id="tool-details">
+        <div class="tool-environment-head">
+            <div><h2 id="tool-container-name">Claude Code 容器</h2><p id="tool-status" class="state-badge" role="status"></p><small id="tool-elapsed" hidden></small></div>
+            <div class="tool-actions">
+                <button id="tool-start" class="primary" data-icon="play" hidden>启动工具</button>
+                <button id="restart" data-icon="restart" hidden>重启</button>
+                <button id="stop" data-icon="stop" hidden>停止工具</button>
+            </div>
+        </div>
+        <p id="tool-error" role="alert" hidden></p>
+        <p class="container-limits">每个工具限 1 核、512 MiB 内存，共享虚拟磁盘。模型请求通过 ModelCat 转发。</p>
+        <div class="tool-setting">
+            <div class="tool-setting-label"><span data-icon="folder"></span><div><strong>工作目录</strong><small id="tool-folder-state"></small></div></div>
+            <button id="authorize" class="primary" hidden>创建工具目录</button>
+        </div>
+        <div class="tool-setting">
+            <label class="tool-setting-label" for="tool-internet"><span data-icon="network"></span><span><strong>允许访问外网</strong><small id="tool-network-hint">可在工具停止时更改</small></span></label>
+            <input id="tool-internet" type="checkbox" switch role="switch" aria-describedby="tool-network-hint" disabled>
+        </div>
+        <div class="tool-setting">
+            <label class="tool-setting-label" for="autostart"><span data-icon="power"></span><strong>随工作区启动</strong></label>
+            <input id="autostart" type="checkbox" switch role="switch" disabled>
+        </div>
+        <div class="tool-setting" id="codex-account-row" hidden>
+            <div class="tool-setting-label"><span data-icon="account"></span><strong>Codex 账号</strong></div>
+            <button id="manage-codex-account" class="quiet-button">管理账号 ›</button>
+        </div>
+        <div class="tool-setting"><strong data-icon="log">容器日志</strong>
+        <button type="button" data-open-dialog="tool-log-dialog" aria-haspopup="dialog">查看日志</button></div>
+
+    </div>
+    <dialog id="tool-log-dialog" class="task-dialog" aria-labelledby="log-title">
+        <header><h2 id="log-title">容器日志</h2><button type="button" data-close-dialog>关闭</button></header>
+        <div class="tool-log-body"><button id="refresh" class="quiet-button" data-icon="refresh" hidden>刷新日志</button>
+        <div id="tool-events" aria-live="polite"></div></div>
+    </dialog>
+    </section>
+</section>
+<dialog id="vm-monitor" aria-labelledby="monitor-title">
+    <header><div><h2 id="monitor-title">资源监控</h2><small id="monitor-time"></small></div><fieldset id="monitor-ranges" aria-label="历史时段"><label><input type="radio" name="monitor-period" value="300" checked><span>5 分钟</span></label><label><input type="radio" name="monitor-period" value="3600" ><span>1 小时</span></label><label><input type="radio" name="monitor-period" value="86400" ><span>24 小时</span></label></fieldset><button aria-label="关闭资源监控" id="monitor-close">×</button></header>
+    <div class="monitor-grid"><section id="chart-cpu"><h3>CPU 使用率</h3><strong></strong><small class="chart-detail"></small><canvas aria-label="CPU 使用率历史趋势" role="img"></canvas><div class="chart-axis"><small></small><small></small></div></section><section id="chart-mem"><h3>内存用量</h3><strong></strong><small class="chart-detail"></small><canvas aria-label="内存用量历史趋势" role="img"></canvas><div class="chart-axis"><small></small><small></small></div></section><section id="chart-net"><h3>网络吞吐</h3><strong></strong><small class="chart-detail"></small><canvas aria-label="网络吞吐历史趋势" role="img"></canvas><div class="chart-axis"><small></small><small></small></div></section><section id="chart-disk"><h3>磁盘读写</h3><strong></strong><small class="chart-detail"></small><canvas aria-label="磁盘读写历史趋势" role="img"></canvas><div class="chart-axis"><small></small><small></small></div></section></div>
+    <p id="monitor-message" role="status"></p>
+</dialog>
+</main>
+<iframe id="workspace-frame" title="本机工作区" allow="clipboard-write"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+    referrerpolicy="no-referrer" inert></iframe>
+</div></div>
+<script src="visuals.js"></script>
+<script src="desktop-account.js"></script>
+<script src="vm-monitor.js?v=axes2"></script>
+<script src="desktop.js?v=monitor-history"></script>
+<script>
+{
+
+    const $ = id => document.getElementById(id);
+    const picker = $('tool-picker');
+    const currentTool = () => picker.querySelector(':checked').value;
+    const invoke = (tool, action) => window.__TAURI__.core.invoke('vm_tool', {tool, action});
+    const labels = {not_created: '未启动', running: '运行中', exited: '已停止', created: '等待启动', restarting: '重启中'};
+    const pendingText = {authorize: '正在创建工具目录…', start: '正在启动工具…', stop: '正在停止工具…', restart: '正在重启工具…'};
+    const statuses = new Map();
+    const details = $('tool-details');
+    let workspaceRunning;
+    let revision = 0;
+    const failures = new Map();
+    let operation;
+    const badge = (state, text) => window.modelcatVisuals.stateBadge($('tool-status'), state, text);
+    function elapsed() {
+        const visible = operation?.tool === currentTool();
+        $('tool-elapsed').hidden = !visible;
+        if (visible) $('tool-elapsed').textContent = '已用 ' + Math.floor((Date.now() - operation.start) / 1000) + ' 秒';
+    }
+    function showStatus(status) {
+        $('tool-container-name').textContent = (currentTool() === 'codex' ? 'Codex' : 'Claude Code') + ' 容器';
+        $('codex-account-row').hidden = currentTool() !== 'codex';
+        details.inert = false;
+        details.removeAttribute('aria-busy');
+        const running = status?.state === 'running';
+        $('authorize').hidden = !status || status.authorized;
+        $('tool-start').hidden = !status?.authorized || running;
+        $('stop').hidden = !running;
+        $('restart').hidden = !status?.authorized || status.state === 'not_created';
+        $('autostart').checked = !!status?.autostart;
+        $('autostart').disabled = !status?.authorized;
+        $('refresh').hidden = !workspaceRunning;
+        $('tool-folder-state').textContent = status ? (status.authorized ? '虚拟机内的 /workspace，可读写' : '在虚拟机内保存此工具读写的项目文件') :
+            (workspaceRunning ? '正在读取目录状态' : '启动虚拟机后可创建专用目录');
+        const busy = !!operation;
+        for (const id of ['authorize','tool-start','stop','restart']) $(id).disabled = busy;
+        $('autostart').disabled = busy || !status?.authorized;
+        $('tool-internet').checked = status?.internet ?? true;
+        $('tool-internet').disabled = busy || !status?.authorized || running;
+        $('tool-network-hint').textContent = running ? '停止工具后可更改' : '关闭后仅可通过 ModelCat 调用模型';
+        const failure = failures.get(currentTool());
+        $('tool-error').hidden = !failure;
+        $('tool-error').textContent = failure ? failure.reason || '可在容器日志中查看失败详情。' : '';
+        if (operation?.tool === currentTool()) badge('pending', operation.message);
+        else if (failure && status && !running) badge('offline', failure.label);
+        else if (status) badge(running ? 'online' : status.state === 'restarting' ? 'pending' : 'idle',
+            labels[status.state] || status.state);
+        else if (workspaceRunning) badge('pending', '正在读取工具状态');
+        else renderToolWorkspaceState();
+        elapsed();
+    }
+    function showLogs(logs) {
+        const tool = currentTool();
+        const name = tool === 'claude' ? 'Claude Code' : 'Codex';
+        $('log-title').textContent = name + ' 容器日志';
+        const list = $('tool-events');
+        const expanded = new Set([...list.querySelectorAll('details[open]')].map(item => item.dataset.key));
+        list.replaceChildren();
+        function append(parent, tag, text) {
+            const element = document.createElement(tag);
+            element.textContent = text;
+            parent.append(element);
+            return element;
+        }
+        const failure = failures.get(tool);
+        if (failure) {
+            append(list, 'strong', failure.label);
+            append(list, 'pre', failure.detail);
+        }
+        const groups = [];
+        const versionPattern = tool === 'claude' ? /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?) \(Claude Code\)$/ : /^codex-cli (\d+\.\d+\.\d+(?:[-+][\w.-]+)?)$/;
+        for (const line of logs.trimEnd().split('\n')) {
+            if (!line && !logs) continue;
+            const match = /^(\d{4}-\d\d-\d\dT\S+Z) (.*)$/.exec(line);
+            const message = match ? match[2] : line;
+            const version = match && versionPattern.exec(message)?.[1];
+            const previous = groups[groups.length - 1];
+            if (version && previous?.version === version) previous.times.push(match[1]);
+            else groups.push({message, version, times:match ? [match[1]] : []});
+        }
+        const local = stamp => new Date(stamp.replace(/(\.\d{3})\d+Z$/, '$1Z')).toLocaleString('zh-CN', {hour12:false});
+        for (const group of groups) {
+            const row = document.createElement('div');
+            list.append(row);
+            if (group.times.length) append(row, 'small', local(group.times.at(-1)));
+            if (group.version) {
+                append(row, 'strong', '启动时检查版本 · ' + name + ' ' + group.version);
+                if (group.times.length > 1) {
+                    const details = document.createElement('details');
+                    details.dataset.key = tool + group.times[0];
+                    details.open = expanded.has(details.dataset.key);
+                    row.append(details);
+                    append(details, 'summary', '查看 ' + group.times.length + ' 次检查时间');
+                    append(details, 'pre', group.times.map(local).join('\n'));
+                }
+            } else append(row, 'pre', group.message);
+        }
+        if (!groups.length && !failure) append(list, 'p', workspaceRunning ? '暂无容器日志' : '启动工作区后可查看日志');
+    }
+    let reading = false;
+    async function refresh() {
+        if (!workspaceRunning || operation || reading) return;
+        const version = ++revision;
+        const tool = currentTool();
+        reading = true;
+        try {
+            const status = JSON.parse(await invoke(tool, 'status'));
+            if (version !== revision) return;
+            statuses.set(tool, status);
+            showStatus(status);
+            const logs = await invoke(tool, 'logs');
+            if (version === revision) showLogs(logs);
+        } catch (failure) {
+            if (version === revision) {
+                if (!statuses.has(tool)) badge('offline', '无法读取工具状态');
+                showLogs(String(failure));
+            }
+        } finally {
+            if (version === revision) reading = false;
+        }
+    }
+    const actionNames = {authorize:'创建目录',start:'启动',restart:'重启',stop:'停止',enable:'设置自动启动',disable:'设置自动启动',online:'设置外网访问',offline:'设置外网访问'};
+    async function update(action) {
+        if (!action) return refresh();
+        if (!workspaceRunning || operation) return;
+        const tool = currentTool();
+        revision++;
+        reading = false;
+        operation = {tool, start:Date.now(), message:pendingText[action] || '正在保存设置'};
+        showStatus(statuses.get(tool));
+        const timer = setInterval(elapsed, 1000);
+        try {
+            await invoke(tool, action);
+            if (['start','restart'].includes(action) || failures.get(tool)?.action === action) failures.delete(tool);
+        } catch (failure) {
+            const detail = String(failure);
+            const reason = detail.match(/(?:虚拟机操作 shell 失败：)([^\n]+?)(?:。详细信息：|\n|$)/)?.[1];
+            failures.set(tool, {action, label:actionNames[action] + '失败',
+                reason: reason && /^[\u3400-\u9fff]/.test(reason) ? reason : '', detail});
+        } finally {
+            clearInterval(timer);
+            operation = null;
+            showStatus(statuses.get(currentTool()));
+            showLogs('');
+            await refresh();
+        }
+    }
+    function selectTool() {
+        revision++;
+        reading = false;
+        showStatus(statuses.get(currentTool()));
+        showLogs('');
+        if (workspaceRunning) void refresh();
+    }
+    window.__TAURI__?.event?.listen('tool-start-progress', ({payload}) => {
+        if (operation?.tool !== payload.tool) return;
+        operation.message = payload.message;
+        if (currentTool() === payload.tool) badge('pending', payload.message);
+    });
+    $('tool-internet').onchange = event => update(event.target.checked ? 'online' : 'offline');
+    $('manage-codex-account').onclick = event => window.modelcatOpenPage('account', event.currentTarget);
+    picker.onchange = selectTool;
+    document.querySelector('[data-open-dialog="tool-log-dialog"]').addEventListener('click', refresh);
+    $('refresh').onclick = () => update();
+    $('autostart').onchange = event => update(event.target.checked ? 'enable' : 'disable');
+    for (const action of ['authorize', 'start',  'stop', 'restart']) $(action === 'start' ? 'tool-start' : action).onclick = () => update(action);
+    window.modelcatUpdateTools = isRunning => {
+        if (workspaceRunning === isRunning) {
+            if (isRunning) void update();
+            return;
+        }
+        statuses.clear();
+        failures.clear();
+        workspaceRunning = isRunning;
+        selectTool();
+    };
+
+
+}
+</script>
+</body>
+</html>

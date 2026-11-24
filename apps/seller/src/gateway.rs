@@ -27,7 +27,13 @@ pub async fn supervise(app: Arc<App>) {
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         };
-        app.runtime.write().await.connection = "connecting".into();
+        {
+            let mut rt = app.runtime.write().await;
+            rt.connection = "connecting".into();
+            rt.connecting_since = now();
+            rt.retry_at = 0;
+            rt.last_error.clear();
+        }
         let result = connect(app.clone(), &binding).await;
         if app.stopping.load(std::sync::atomic::Ordering::SeqCst) {
             app.runtime.write().await.connection = "drained".into();
@@ -36,9 +42,10 @@ pub async fn supervise(app: Arc<App>) {
         {
             let mut rt = app.runtime.write().await;
             rt.connection = "reconnecting".into();
+            rt.retry_at = now() + backoff as i64;
             if result.is_err() {
                 rt.last_error =
-                    "GW connection closed or unavailable; check binding and network".into();
+                    "请检查网络和平台绑定".into();
             }
         }
         tokio::time::sleep(Duration::from_secs(backoff)).await;
@@ -64,7 +71,11 @@ async fn connect(app: Arc<App>, binding: &Binding) -> Result<()> {
     let (socket, _) =
         tokio::time::timeout(Duration::from_secs(15), connect_async(request)).await??;
     let (mut writer, mut reader) = socket.split();
-    let public_ip = discover_public_ip().await;
+    let discover_ip = !matches!(url.host_str(), Some("127.0.0.1" | "[::1]"));
+    let ip_lookup = discover_public_ip();
+    tokio::pin!(ip_lookup);
+    let mut lookup_pending = discover_ip;
+    let mut public_ip = None;
     {
         let mut rt = app.runtime.write().await;
         rt.connection = "online".into();
@@ -77,6 +88,10 @@ async fn connect(app: Arc<App>, binding: &Binding) -> Result<()> {
     let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
     let result:Result<()>=async {
         loop{tokio::select!{
+            ip = &mut ip_lookup, if lookup_pending => {
+                public_ip = ip;
+                lookup_pending = false;
+            }
             _=app.network_stop.notified()=>{}
             _=heartbeat.tick()=>{
                 let current=app.binding.read().await.clone();
@@ -110,7 +125,7 @@ async fn connect(app: Arc<App>, binding: &Binding) -> Result<()> {
                                     Ok((payload,verifier))=>{
                                         let (cancel,cancel_rx)=oneshot::channel();active.insert(id.clone(),Some(cancel));
                                         let app=app.clone();let tx=out.clone();let done=completed.clone();
-                                        tokio::spawn(async move{runner::execute(app,payload,verifier,tx,cancel_rx).await;let _=done.send(id).await;});
+                                        tokio::spawn(async move{runner::execute(app,payload,verifier,tx,cancel_rx,true).await;let _=done.send(id).await;});
                                     }
                                     Err(_)=>{let _=out.send(Envelope::with_id(&id,"error",json!({"code":"JOB_REJECTED","message":"invalid, replayed or unavailable job"}))).await;}
                                 }
@@ -138,14 +153,8 @@ async fn connect(app: Arc<App>, binding: &Binding) -> Result<()> {
     result
 }
 
-pub async fn submit_quote(app: &App, offer: &crate::config::Offer) -> Result<Value> {
+pub async fn submit_quote(b: &crate::config::Binding, offer: &crate::config::Offer) -> Result<Value> {
     offer.validate()?;
-    let b = app
-        .binding
-        .read()
-        .await
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("bind node first"))?;
     let resp=asale_client_core::http::plain().post(format!("{}/market/api/node/quotes",b.gateway_url.trim_end_matches('/')))
         .bearer_auth(&b.node_secret).header("X-Node-ID",&b.node_id).timeout(Duration::from_secs(15))
         .json(&json!({"model":offer.model,"provider":offer.provider,"upstream_model":offer.upstream_model,"input_price_per_m":offer.input_price_per_m,"output_price_per_m":offer.output_price_per_m})).send().await?;
@@ -163,6 +172,10 @@ pub async fn account(app: &App) -> Result<Value> {
         .await
         .clone()
         .ok_or_else(|| anyhow::anyhow!("bind node first"))?;
+    bound_account(&b).await
+}
+
+pub async fn bound_account(b: &crate::config::Binding) -> Result<Value> {
     let resp = asale_client_core::http::plain()
         .get(format!(
             "{}/market/api/node/account",
@@ -173,7 +186,11 @@ pub async fn account(app: &App) -> Result<Value> {
         .timeout(Duration::from_secs(15))
         .send()
         .await?;
-    ensure!(resp.status().is_success(), "GW account unavailable");
+    match resp.status().as_u16() {
+        401 => anyhow::bail!("节点凭据无效，请在卖家中心重新绑定。"),
+        403 => anyhow::bail!("网关拒绝读取账单，请检查节点所属卖家的审核状态。"),
+        _ => ensure!(resp.status().is_success(), "网关暂时无法提供账单，请稍后重试。"),
+    }
     Ok(resp.json().await?)
 }
 
