@@ -6,6 +6,8 @@ ModelCat 是模型提供者（MSP）的本地客户端。macOS 隔离工作区�
 
 [下载最新版](https://github.com/OpenDotAI/modelcat/releases/latest) · [全部版本与更新说明](https://github.com/OpenDotAI/modelcat/releases)
 
+[命令行使用指南](CLI.md)
+
 ## Apple Silicon 桌面开发预览
 
 在仓库根目录运行 `./scripts/dev-desktop.sh`。脚本用相邻

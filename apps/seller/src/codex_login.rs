@@ -385,80 +385,83 @@ pub async fn codex_account(
     proxy: Option<String>,
     profile_id: Option<String>,
 ) -> std::result::Result<Value, String> {
-    async {
-        ensure!(window.label() == "main", "账号操作无效");
-        let root = crate::vm::codex_profile(action == "start")?;
-        let profile = stored_profile(&root, profile_id.as_deref().unwrap_or("default"))?;
-        let mut pending = state.0.lock().await;
-        ensure!(
-            pending
-                .as_ref()
-                .is_none_or(|login| login.profile == profile),
-            "另一个账号正在授权，请先完成或取消"
-        );
+    if window.label() != "main" { return Err("账号操作无效".into()); }
+    let root = crate::vm::codex_profile(action == "start").map_err(|e| e.to_string())?;
+    account_action(&root, &state, &action, proxy.as_deref(), profile_id.as_deref(), || {
+        let _ = window.set_focus();
+    }).await.map_err(|e| e.to_string())
+}
 
-        match action.as_str() {
-            "start" => {
-                ensure!(pending.is_none(), "已有登录正在进行");
-                let proxy = proxy_url(proxy.as_deref().unwrap_or_default())?;
-                let mut server = Server::start(&profile, proxy.as_ref()).await?;
-                let response = server
-                    .request(3, "account/login/start", json!({"type": "chatgpt"}))
-                    .await?;
-                let id = response["loginId"]
-                    .as_str()
-                    .context("Codex 未返回登录会话")?
-                    .to_owned();
-                let proxy_arg = browser_proxy(proxy.as_ref().map_or("auto", Url::as_str))?;
-                open_authorization(&response["authUrl"], &profile, proxy_arg.as_deref(), &uuid::Uuid::new_v4().to_string()).await?;
-                *pending = Some(Login {
-                    profile,
-                    server,
-                    id,
-                    deadline: Instant::now() + LOGIN_TIMEOUT,
-                });
-                Ok(json!({"state": "waiting"}))
-            }
-            "status" => {
-                if let Some(login) = pending.as_mut() {
-                    let status = login.status().await;
-                    if !status
-                        .as_ref()
-                        .is_ok_and(|value| value["state"] == "waiting")
-                    {
-                        *pending = None;
-                        if status
-                            .as_ref()
-                            .is_ok_and(|value| value["state"] == "signed_in")
-                        {
-                            let _ = window.set_focus();
-                        }
-                    }
-                    return status;
-                }
-                if !profile.is_dir() {
-                    return Ok(json!({"state": "signed_out"}));
-                }
-                Server::start(&profile, None).await?.account().await
-            }
-            "cancel" => {
-                *pending = None;
-                Ok(json!({"state": "signed_out"}))
-            }
-            "logout" => {
-                *pending = None;
-                if !profile.is_dir() {
-                    return Ok(json!({"state": "signed_out"}));
-                }
-                let mut server = Server::start(&profile, None).await?;
-                server.request(3, "account/logout", json!({})).await?;
-                server.account().await
-            }
-            _ => Err(anyhow!("账号操作无效")),
+async fn account_action(root: &Path, state: &CodexLogin, action: &str, proxy: Option<&str>,
+    profile_id: Option<&str>, on_signed_in: impl FnOnce()) -> Result<Value> {
+    let profile = stored_profile(root, profile_id.unwrap_or("default"))?;
+    let mut pending = state.0.lock().await;
+    ensure!(
+        pending
+            .as_ref()
+            .is_none_or(|login| login.profile == profile),
+        "另一个账号正在授权，请先完成或取消"
+    );
+
+    match action {
+        "start" => {
+            ensure!(pending.is_none(), "已有登录正在进行");
+            let proxy = proxy_url(proxy.unwrap_or_default())?;
+            let mut server = Server::start(&profile, proxy.as_ref()).await?;
+            let response = server
+                .request(3, "account/login/start", json!({"type": "chatgpt"}))
+                .await?;
+            let id = response["loginId"]
+                .as_str()
+                .context("Codex 未返回登录会话")?
+                .to_owned();
+            let proxy_arg = browser_proxy(proxy.as_ref().map_or("auto", Url::as_str))?;
+            open_authorization(&response["authUrl"], &profile, proxy_arg.as_deref(), &uuid::Uuid::new_v4().to_string()).await?;
+            *pending = Some(Login {
+                profile,
+                server,
+                id,
+                deadline: Instant::now() + LOGIN_TIMEOUT,
+            });
+            Ok(json!({"state": "waiting"}))
         }
+        "status" => {
+            if let Some(login) = pending.as_mut() {
+                let status = login.status().await;
+                if !status
+                    .as_ref()
+                    .is_ok_and(|value| value["state"] == "waiting")
+                {
+                    *pending = None;
+                    if status
+                        .as_ref()
+                        .is_ok_and(|value| value["state"] == "signed_in")
+                    {
+                        on_signed_in();
+                    }
+                }
+                return status;
+            }
+            if !profile.is_dir() {
+                return Ok(json!({"state": "signed_out"}));
+            }
+            Server::start(&profile, None).await?.account().await
+        }
+        "cancel" => {
+            *pending = None;
+            Ok(json!({"state": "signed_out"}))
+        }
+        "logout" => {
+            *pending = None;
+            if !profile.is_dir() {
+                return Ok(json!({"state": "signed_out"}));
+            }
+            let mut server = Server::start(&profile, None).await?;
+            server.request(3, "account/logout", json!({})).await?;
+            server.account().await
+        }
+        _ => Err(anyhow!("账号操作无效")),
     }
-    .await
-    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -466,53 +469,87 @@ pub async fn codex_profiles(
     window: WebviewWindow,
     name: Option<String>,
 ) -> std::result::Result<Value, String> {
-    (|| -> Result<Value> {
-        ensure!(window.label() == "main", "账号操作无效");
-        let root = crate::vm::codex_profile(name.is_some())?;
-        let directory = root.join("profiles");
-        let mut rows = vec![json!({"id":"default","label":"默认账号"})];
-        let mut selected = None;
-        if let Some(label) = name.as_deref().map(str::trim) {
-            ensure!(
-                !label.is_empty() && label.chars().count() <= 64,
-                "账号名称须为 1 到 64 个字符"
-            );
-            if !directory.exists() {
-                std::fs::DirBuilder::new()
-                    .mode(0o700)
-                    .create(&directory)
-                    .or_else(|error| {
-                        if error.kind() == std::io::ErrorKind::AlreadyExists {
-                            Ok(())
-                        } else {
-                            Err(error)
-                        }
-                    })?;
-            }
-            ensure!(directory.symlink_metadata()?.is_dir(), "账号目录无效");
-            let id = uuid::Uuid::new_v4().simple().to_string();
-            let path = directory.join(&id);
-            std::fs::DirBuilder::new().mode(0o700).create(&path)?;
-            std::fs::write(path.join("modelcat-label"), label)?;
-            selected = Some(id);
+    if window.label() != "main" { return Err("账号操作无效".into()); }
+    let root = crate::vm::codex_profile(name.is_some()).map_err(|e| e.to_string())?;
+    profiles(&root, name.as_deref()).map_err(|e| e.to_string())
+}
+
+fn profiles(root: &Path, name: Option<&str>) -> Result<Value> {
+    let directory = root.join("profiles");
+    let mut rows = vec![json!({"id":"default","label":"默认账号"})];
+    let mut selected = None;
+    if let Some(label) = name.map(str::trim) {
+        ensure!(
+            !label.is_empty() && label.chars().count() <= 64,
+            "账号名称须为 1 到 64 个字符"
+        );
+        if !directory.exists() {
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&directory)
+                .or_else(|error| {
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        Ok(())
+                    } else {
+                        Err(error)
+                    }
+                })?;
         }
-        if directory.exists() {
-            ensure!(directory.symlink_metadata()?.is_dir(), "账号目录无效");
-            let mut entries = std::fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
-            entries.sort_by_key(|entry| entry.file_name());
-            for entry in entries {
-                let id = entry.file_name().to_string_lossy().into_owned();
-                if !valid_profile_id(&id) || !entry.file_type()?.is_dir() {
-                    continue;
-                }
-                if let Ok(label) = std::fs::read_to_string(entry.path().join("modelcat-label")) {
-                    rows.push(json!({"id":id,"label":label}));
-                }
+        ensure!(directory.symlink_metadata()?.is_dir(), "账号目录无效");
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let path = directory.join(&id);
+        std::fs::DirBuilder::new().mode(0o700).create(&path)?;
+        std::fs::write(path.join("modelcat-label"), label)?;
+        selected = Some(id);
+    }
+    if directory.exists() {
+        ensure!(directory.symlink_metadata()?.is_dir(), "账号目录无效");
+        let mut entries = std::fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let id = entry.file_name().to_string_lossy().into_owned();
+            if !valid_profile_id(&id) || !entry.file_type()?.is_dir() {
+                continue;
+            }
+            if let Ok(label) = std::fs::read_to_string(entry.path().join("modelcat-label")) {
+                rows.push(json!({"id":id,"label":label}));
             }
         }
-        Ok(json!({"profiles":rows,"selected":selected}))
-    })()
-    .map_err(|error| error.to_string())
+    }
+    Ok(json!({"profiles":rows,"selected":selected}))
+}
+
+#[derive(clap::Subcommand)]
+pub enum AccountAction {
+    /// List profiles, or add one with the given name.
+    Profiles { #[arg(long)] create: Option<String> },
+    /// Open authorization and wait for the browser login to finish.
+    Login { #[arg(long)] proxy: Option<String> },
+    Status,
+    Logout,
+}
+pub async fn account_cli(directory: Option<&Path>, action: &AccountAction, id: &str) -> Result<()> {
+    let create = matches!(action, AccountAction::Login { .. } | AccountAction::Profiles { create: Some(_) });
+    let root = crate::vm::codex_profile_at(directory, create)?;
+    let state = CodexLogin::default();
+    let result = match action {
+        AccountAction::Profiles { create } => profiles(&root, create.as_deref())?,
+        AccountAction::Login { proxy } => {
+            account_action(&root, &state, "start", proxy.as_deref(), Some(id), || {}).await?;
+            eprintln!("Complete authorization in your browser. Press Ctrl-C to cancel.");
+            loop {
+                let value = account_action(&root, &state, "status", None, Some(id), || {}).await?;
+                if value["state"] != "waiting" { break value; }
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+        }
+        AccountAction::Status | AccountAction::Logout => {
+            let op = if matches!(action, AccountAction::Status) { "status" } else { "logout" };
+            account_action(&root, &state, op, None, Some(id), || {}).await?
+        }
+    };
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
 }
 
 fn valid_profile_id(id: &str) -> bool {

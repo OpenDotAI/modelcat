@@ -49,6 +49,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/oauth/start", post(oauth_start))
         .route("/api/oauth/:id", get(oauth_result))
         .route("/api/oauth/:id/code", post(oauth_code))
+        .route("/api/quotes/save", post(save_quotes))
         .route("/api/quotes/submit", post(submit_quotes))
         .route("/api/earnings", get(earnings))
         .route("/api/proxy/test", post(proxy_test))
@@ -321,6 +322,14 @@ async fn traffic(State(app): State<Arc<App>>, Path(range): Path<String>) -> Resp
     Json(json!({"now": now, "samples": samples, "latest": latest})).into_response()
 }
 
+pub(crate) fn claude_view(cfg: &Config) -> Value {
+    match claude_api::source() {
+        Ok(Some(source)) => json!({"models":source.models,"paused":source.paused(cfg),"workspace_id":source.workspace_id,"base_url":source.base_url}),
+        Ok(None) => Value::Null,
+        Err(e) => json!({"error":e.to_string()}),
+    }
+}
+
 async fn status(State(app): State<Arc<App>>) -> Response {
     let accounts = if app.vm_workspace { vec![] } else { app.accounts.read().await.clone() };
     let cfg = app.config.read().await.clone();
@@ -335,11 +344,7 @@ async fn status(State(app): State<Arc<App>>) -> Response {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let claude = match claude_api::source() {
-        Ok(Some(source)) => json!({"models":source.models,"paused":source.paused(&cfg),"workspace_id":source.workspace_id,"base_url":source.base_url}),
-        Ok(None) => Value::Null,
-        Err(e) => json!({"error":e.to_string()}),
-    };
+    let claude = claude_view(&cfg);
     let workspace = app.vm_workspace;
     let connections = connections::views().unwrap_or_default();
     let pricing = {
@@ -351,8 +356,9 @@ async fn status(State(app): State<Arc<App>>) -> Response {
         catalog.view(names)
     };
     let ollama_models: Vec<_> = app.ollama_models.read().await.iter().map(|model| model.id()).collect();
+    let candidates = crate::offers::candidates(&cfg, &accounts, &connections, &ollama_models, &claude, workspace);
     let (local_models, local_aliases) = app.local_catalog().await;
-    Json(json!({"version":env!("CARGO_PKG_VERSION"),"runtime":app.runtime.read().await.clone(),"config":cfg,"accounts":accounts,"account_status":pool,"records":records,"binding":binding.map(|b|json!({"gateway_url":b.gateway_url,"node_id":b.node_id,"currency":b.currency})),"available_models":app.available_models().await,"local_models":local_models,"local_aliases":local_aliases,"connections":connections,"reference_prices":pricing,"ollama_models":ollama_models,"claude_api":claude,"vm_workspace":workspace,"oauth_preview":workspace&&cfg!(feature="oauth-preview")})).into_response()
+    Json(json!({"version":env!("CARGO_PKG_VERSION"),"runtime":app.runtime.read().await.clone(),"config":cfg,"accounts":accounts,"account_status":pool,"records":records,"binding":binding.map(|b|json!({"gateway_url":b.gateway_url,"node_id":b.node_id,"currency":b.currency})),"available_models":app.available_models().await,"local_models":local_models,"local_aliases":local_aliases,"connections":connections,"quote_candidates":candidates,"reference_prices":pricing,"ollama_models":ollama_models,"claude_api":claude,"vm_workspace":workspace,"oauth_preview":workspace&&cfg!(feature="oauth-preview")})).into_response()
 }
 async fn config(State(app): State<Arc<App>>) -> Response {
     Json(json!(app.config.read().await.clone())).into_response()
@@ -450,6 +456,12 @@ async fn oauth_code(
         }
     }
     error("unknown or expired OAuth flow")
+}
+async fn save_quotes(State(app): State<Arc<App>>, Json(edits): Json<Vec<crate::offers::Edit>>) -> Response {
+    match crate::offers::save(&app, edits).await {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(e) => error(e),
+    }
 }
 async fn submit_quotes(State(app): State<Arc<App>>, Json(selection): Json<Value>) -> Response {
     let _batch = app.quote_submission.lock().await;

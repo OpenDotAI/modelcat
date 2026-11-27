@@ -69,6 +69,7 @@ def package(binary, target, version, output, identity=None, notary=None, desktop
             (macos / 'modelcat').chmod(0o755)
             resources = app / 'Contents/Resources'
             if desktop:
+                shutil.copyfile(project / 'CLI.md', stage / 'CLI.md')
                 runtime = project / '.vm-tools'
                 # ModelCat uses the built-in VZ driver and invokes limactl directly.
                 unused = shutil.ignore_patterns('lima-driver-krunkit', 'limactl-menu', 'limactl-mcp')
@@ -104,6 +105,7 @@ def package(binary, target, version, output, identity=None, notary=None, desktop
             shutil.copytree(app, dmg_root / app.name, symlinks=True)
             if desktop:
                 shutil.copyfile(stage / 'README.txt', dmg_root / 'README.txt')
+                shutil.copyfile(stage / 'CLI.md', dmg_root / 'CLI.md')
             (dmg_root / 'Applications').symlink_to('/Applications')
             subprocess.run(['codesign', '--verify', '--strict', str(dmg_root / app.name)], check=True)
             dmg = output / f'modelcat-{target}.dmg'

@@ -1712,22 +1712,7 @@ $('#load-earnings').onclick = refreshEarnings;
 $('#load-quotes').onclick = () => loadGatewayAccount('quotes');
 if(token)refresh().catch(e=>notify(e.message));setInterval(()=>{if(token&&config)refresh().catch(()=>{})},10000);
 function quoteCandidates(snapshot){
-    const {accounts, connections = [], ollama_models = [], config} = snapshot;
-    const claude = snapshot.vm_workspace && snapshot.claude_api;
-    const rows=ollama_models.map(id=>({id,upstreamId:id,provider:'custom',label:'Ollama'}));
-    if(claude&&!claude.paused&&!claude.base_url)for(const id of claude.models||[]){
-        rows.push({id,upstreamId:'claude-api/'+id,provider:'claude',label:'Claude API Key'});
-    }
-    for(const a of accounts)for(const id of a.models||[]){
-        if(!rows.some(r=>r.id===id&&r.provider===a.provider))rows.push({id,upstreamId:id,provider:a.provider,label:a.provider});
-    }
-    for (const connection of connections) for (const model of connection.models) {
-        if(connection.oauth)continue;
-        const existing=config.offers.find(offer=>offer.upstream_model===model.id);
-        const suggested=model.name.slice(0,100)+'-'+connection.id.slice(0,8);
-        rows.push({id:existing?.model || suggested, upstreamId:model.id, provider:connection.offer_provider, label:connection.label, localPricing:connection.protocol === 'ollama', sourceModel:model.name});
-    }
-    return rows;
+    return snapshot.quote_candidates || [];
 }
 function renderDiscovered(snapshot){
     const rows = quoteCandidates(snapshot);
@@ -1864,14 +1849,10 @@ function referenceQuoteRows() {
 }
 async function saveCatalogQuotes(rows) {
     if (!rows.length) throw Error('没有可提交的报价');
-    const next = structuredClone(config);
+    const edits = [];
     for (const row of rows) {
-        const {model, provider, upstream} = row.dataset;
-        let offer = next.offers.find(item => item.model === model);
-        if (!offer) {
-            offer = {model, provider, upstream_model: upstream, enabled: true};
-            next.offers.push(offer);
-        }
+        const {model, upstream} = row.dataset;
+        const edit = {model, upstream};
         for (const field of row.querySelectorAll('[data-price]')) {
             const value = field.value.trim() || field.dataset.referencePrice;
             if (!validQuote(value)) {
@@ -1885,10 +1866,11 @@ async function saveCatalogQuotes(rows) {
                 field.focus();
                 throw Error(model + ' 的' + (field.dataset.price === 'input' ? '输入' : '输出') + '单价须在 0 到 1000 之间，最多 6 位小数。');
             }
-            offer[field.dataset.price + '_price_per_m'] = value;
+            edit[field.dataset.price] = field.value.trim() || null;
         }
+        edits.push(edit);
     }
-    await api('/api/config', next);
+    await api('/api/quotes/save', edits);
     return rows.map(row => row.dataset.model);
 }
 function storeQuoteField(field) {

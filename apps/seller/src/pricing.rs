@@ -85,6 +85,10 @@ impl Catalog {
         }
     }
 
+    pub(crate) fn price(&self, id: &str) -> Option<(f64, f64)> {
+        self.lookup(id).map(|p| (p.input, p.output))
+    }
+
     pub(crate) fn view<'a>(&self, names: impl Iterator<Item = &'a str>) -> Value {
         let prices: BTreeMap<_, _> = names
             .filter_map(|id| self.lookup(id).map(|p| (id, p)))

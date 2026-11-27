@@ -11,6 +11,7 @@ pub mod gateway;
 pub mod kiro;
 pub mod model_capabilities;
 pub mod onboarding;
+mod offers;
 pub mod ollama;
 pub mod pricing;
 pub mod runner;

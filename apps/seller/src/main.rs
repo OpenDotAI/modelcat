@@ -7,7 +7,7 @@ mod vm;
 #[cfg(unix)]
 mod tool_api;
 
-use anyhow::{ensure, Result};
+use anyhow::{Context, ensure, Result};
 use channel_node::{
     config::{Binding, Config},
     control, gateway,
@@ -105,7 +105,36 @@ enum Action {
         #[arg(long)]
         file: PathBuf,
     },
-    Quotes,
+    /// List catalog candidates and reference prices.
+    OfferList,
+    /// Save a quote. An omitted price uses the catalog reference for that side.
+    OfferSave { model: String, #[arg(long)] upstream: Option<String>,
+        #[arg(long)] input: Option<String>, #[arg(long)] output: Option<String> },
+    /// Submit saved quotes, optionally limiting submission to the named models.
+    Quotes { #[arg(long = "model")] models: Vec<String> },
+    /// Access a local management endpoint. Use --body FILE (or - for stdin) to POST JSON.
+    Api { endpoint: String, #[arg(long)] body: Option<PathBuf> },
+    /// Make a local model call with your own prompt.
+    Trial { model: String, prompt: String, #[arg(long)] stream: bool },
+    /// View the bound node's earnings and quote review history.
+    Earnings,
+    /// Read request history or the detail for one request.
+    Requests {
+        #[arg(conflicts_with_all=["since","before","source","status"])] id: Option<String>,
+        #[arg(long)] since: Option<i64>, #[arg(long)] before: Option<i64>,
+        #[arg(long)] source: Option<String>, #[arg(long,value_parser=["ok","failed","cancelled"])] status: Option<String>,
+    },
+    /// Manage model provider connections in the running workspace.
+    Connections { #[command(subcommand)] action: ConnectionAction },
+    /// Sign in to the Mac workspace using a platform key from stdin or a file.
+    #[cfg(feature = "desktop")]
+    Login { #[arg(long)] key_file: Option<PathBuf> },
+    /// Manage the same Codex account profiles used by the Mac app.
+    #[cfg(feature = "desktop")]
+    Account { #[arg(long, default_value="default")] profile: String, #[command(subcommand)] action: codex_login::AccountAction },
+    /// Manage the Mac virtual machine without opening a window.
+    #[cfg(feature = "desktop")]
+    Workspace { #[command(subcommand)] action: vm::WorkspaceAction },
     /// Make one small local model call; consumes the provider's own subscription.
     Probe {
         model: String,
@@ -130,6 +159,75 @@ enum Action {
 }
 
 #[derive(Subcommand)]
+enum ConnectionAction {
+    List,
+    /// Authorize a Codex connection with a device code, or renew one by ID.
+    Authorize { label: String, #[arg(long)] id: Option<String> },
+    /// Read JSON containing label, base, protocol and optionally key. Use - for stdin.
+    Save { file: PathBuf, #[arg(long)] id: Option<String>, #[arg(long)] check_only: bool },
+    Check { id: String },
+    Rename { id: String, label: String },
+    Refresh { id: String },
+    Remove { id: String },
+}
+
+impl ConnectionAction {
+    fn request(&self) -> Result<(String, Option<serde_json::Value>)> {
+        let base = "/api/connections";
+        let (id, suffix, body) = match self {
+            Self::List => return Ok((base.into(), None)),
+            Self::Authorize { .. } => anyhow::bail!("authorization requires the device flow"),
+            Self::Save { file, id, check_only } => {
+                let input = read_json(file)?;
+                (id.as_deref(), if *check_only { "?probe_only=true" } else { "" }, input)
+            }
+            Self::Check { id } => (Some(id.as_str()), "/check", serde_json::json!({})),
+            Self::Rename { id, label } => (Some(id.as_str()), "/rename", serde_json::json!({"label":label})),
+            Self::Refresh { id } => (Some(id.as_str()), "/refresh", serde_json::json!({})),
+            Self::Remove { id } => (Some(id.as_str()), "/remove", serde_json::json!({})),
+        };
+        let path = if let Some(id) = id {
+            ensure!(!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b,b'-'|b'_')), "invalid connection id");
+            format!("{base}/{id}{suffix}")
+        } else { format!("{base}{suffix}") };
+        Ok((path, Some(body)))
+    }
+}
+
+async fn authorize_connection(base: &str, directory: Option<&Path>, label: &str, id: Option<&str>) -> Result<()> {
+    let start = serde_json::json!({"label": label, "id": id});
+    let session = management_rpc(base, directory, "/api/connections/codex/start", Some(start)).await?;
+    let attempt = uuid::Uuid::parse_str(session["id"].as_str().context("missing attempt id")?)?;
+    let code = session["code"].as_str().context("missing device code")?;
+    eprintln!("打开 https://auth.openai.com/codex/device 并输入设备码 {code}");
+    let interval = Duration::from_secs(session["interval"].as_u64().unwrap_or(5).clamp(1, 60));
+    let endpoint = format!("/api/connections/codex/{attempt}");
+    let wait = async {
+        loop {
+            tokio::time::sleep(interval).await;
+            let result = management_rpc(base, directory, &format!("{endpoint}/poll"), Some(serde_json::json!({}))).await?;
+            if result["pending"] != true {
+                println!("{}", result);
+                return Ok(());
+            }
+        }
+    };
+    tokio::select! {
+        result = wait => result,
+        signal = tokio::signal::ctrl_c() => {
+            signal?;
+            management_rpc(base, directory, &format!("{endpoint}/cancel"), Some(serde_json::json!({}))).await?;
+            anyhow::bail!("授权已取消")
+        }
+    }
+}
+
+fn read_json(path: &Path) -> Result<serde_json::Value> {
+    if path == Path::new("-") { Ok(serde_json::from_reader(std::io::stdin().lock())?) }
+    else { Ok(serde_json::from_reader(fs::File::open(path)?)?) }
+}
+
+#[derive(Subcommand)]
 enum UpstreamAction {
     /// List the models reachable by the workspace at an Ollama origin.
     Discover { url: String },
@@ -151,6 +249,8 @@ enum NetworkAction {
 enum ToolAction {
     /// Authorize a private working directory inside the workspace VM.
     Authorize { tool: String },
+    /// Change internet access for a stopped tool.
+    Network { tool: String, #[arg(value_parser=["online","offline"])] mode: String },
     Start { tool: String },
     Stop { tool: String },
     Restart { tool: String },
@@ -348,10 +448,65 @@ async fn main() -> Result<()> {
             println!("Configuration saved.");
             Ok(())
         }
-        Action::Quotes => {
+        #[cfg(feature = "desktop")]
+        Action::Account { profile, action } => codex_login::account_cli(cli.data_dir.as_deref(), action, profile).await,
+        #[cfg(feature = "desktop")]
+        Action::Workspace { action } => vm::workspace_cli(cli.data_dir.as_deref(), action).await,
+        #[cfg(feature = "desktop")]
+        Action::Login { key_file } => {
+            use std::io::Read;
+            let mut key = String::new();
+            if let Some(path) = key_file { key = fs::read_to_string(path)?; }
+            else { std::io::stdin().take(1024).read_to_string(&mut key)?; }
+            vm::login_platform(&key, &vm::profile_root(cli.data_dir.as_deref())?).await?;
+            println!("Platform key verified. Workspace login saved.");
+            Ok(())
+        }
+        Action::Api { endpoint, body } => {
+            ensure!(endpoint.starts_with("/api/"), "expected a local /api/ endpoint");
+            let payload = body.as_deref().map(read_json).transpose()?;
+            print_response(&base, cli.data_dir.as_deref(), endpoint, payload).await
+        }
+        Action::Trial { model, prompt, stream } => {
+            let body = serde_json::json!({"model":model,"prompt":prompt,"stream":stream});
+            print_response(&base, cli.data_dir.as_deref(), "/api/inference/test", Some(body)).await
+        }
+        Action::Earnings => print_response(&base,cli.data_dir.as_deref(),"/api/earnings",None).await,
+        Action::Requests { id, since, before, source, status } => {
+            let mut url = reqwest::Url::parse("http://localhost/api/request-history")?;
+            if let Some(id) = id {
+                url.path_segments_mut().unwrap().push(id);
+            } else {
+                let mut query = url.query_pairs_mut();
+                if let Some(value) = since { query.append_pair("since",&value.to_string()); }
+                if let Some(value) = before { query.append_pair("before",&value.to_string()); }
+                if let Some(value) = source { query.append_pair("source",value); }
+                if let Some(value) = status { query.append_pair("status",value); }
+            }
+            print_response(&base,cli.data_dir.as_deref(), &url.as_str()[url.origin().ascii_serialization().len()..],None).await
+        }
+        Action::Connections { action: ConnectionAction::Authorize { label, id } } => {
+            authorize_connection(&base, cli.data_dir.as_deref(), label, id.as_deref()).await
+        }
+        Action::Connections { action } => {
+            let (path, body) = action.request()?;
+            print_response(&base,cli.data_dir.as_deref(), &path,body).await
+        }
+        Action::OfferList => {
+            let snapshot = management_rpc(&base, cli.data_dir.as_deref(), "/api/status", None).await?;
+            ensure!(snapshot["quote_candidates"].is_array(), "update the workspace node for quote catalog support");
+            println!("{}", serde_json::json!({"models":snapshot["quote_candidates"],"references":snapshot["reference_prices"],"saved":snapshot["config"]["offers"]}));
+            Ok(())
+        }
+        Action::OfferSave { model, upstream, input, output } => {
+            let edit = serde_json::json!([{"model":model,"upstream":upstream,"input":input,"output":output}]);
+            print_response(&base, cli.data_dir.as_deref(), "/api/quotes/save", Some(edit)).await
+        }
+        Action::Quotes { models } => {
+            let selection = if models.is_empty() { serde_json::json!({}) } else { serde_json::json!({"models":models}) };
             println!(
                 "{}",
-                management_rpc(&base, cli.data_dir.as_deref(), "/api/quotes/submit", Some(serde_json::json!({}))).await?
+                management_rpc(&base, cli.data_dir.as_deref(), "/api/quotes/submit", Some(selection)).await?
             );
             Ok(())
         }
@@ -441,27 +596,54 @@ async fn management_rpc(
     path: &str,
     body: Option<serde_json::Value>,
 ) -> Result<serde_json::Value> {
-    #[cfg(feature = "desktop")]
-    if base == "http://127.0.0.1:19701" {
-        if let Some((origin, token)) = vm::workspace_connection(_directory)? {
-            return rpc_authenticated(&origin, path, body, &token).await;
-        }
-    }
-    rpc(base, path, body).await
+    let (origin, token) = management_target(base, _directory)?;
+    rpc_authenticated(&origin, path, body, &token).await
 }
 
-async fn rpc_authenticated(base: &str, path: &str, body: Option<serde_json::Value>, token: &str) -> Result<serde_json::Value> {
+fn management_target(base: &str, _directory: Option<&Path>) -> Result<(String, String)> {
+    #[cfg(feature = "desktop")]
+    if base == "http://127.0.0.1:19701" {
+        if let Some(connection) = vm::workspace_connection(_directory)? {
+            return Ok(connection);
+        }
+    }
+    Ok((base.to_owned(), read_token()?))
+}
+
+async fn print_response(base: &str, directory: Option<&Path>, endpoint: &str, payload: Option<serde_json::Value>) -> Result<()> {
+    let (origin, token) = management_target(base, directory)?;
+    let mut response = management_request(&origin, endpoint, payload, &token).await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let details = response.json::<serde_json::Value>().await.unwrap_or_default();
+        anyhow::bail!("{status} {}", details["error"].as_str().unwrap_or("request failed"));
+    }
+    use std::io::Write;
+    while let Some(chunk) = response.chunk().await? {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(&chunk)?;
+        stdout.flush()?;
+    }
+    println!();
+    Ok(())
+}
+
+async fn management_request(base: &str, path: &str, body: Option<serde_json::Value>, token: &str) -> Result<reqwest::Response> {
     let http = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).build()?;
     let req = if let Some(body) = body {
         http.post(format!("{base}{path}")).json(&body)
     } else {
         http.get(format!("{base}{path}"))
     };
-    let response = req
+    Ok(req
         .bearer_auth(token)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(if path == "/api/inference/test" { 600 } else { 30 }))
         .send()
-        .await?;
+        .await?)
+}
+
+async fn rpc_authenticated(base: &str, path: &str, body: Option<serde_json::Value>, token: &str) -> Result<serde_json::Value> {
+    let response = management_request(base, path, body, token).await?;
     let status = response.status();
     let value: serde_json::Value = response.json().await?;
     ensure!(

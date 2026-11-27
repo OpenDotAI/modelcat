@@ -45,49 +45,56 @@ pub async fn vm_resources(window: tauri::WebviewWindow, state: tauri::State<'_, 
     let operation = state.lifecycle.clone().lock_owned().await;
     tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value> {
         let _operation = operation;
-        let root = workspace_root(None)?;
-        let current = if root.join("lima/modelcat/lima.yaml").is_file() {
-            let driver = Driver { root: root.clone(), runtime: runtime()? };
-            let output = driver.call(&["list", "--json", "modelcat"])?;
-            #[derive(serde::Deserialize)]
-            struct Instance { cpus: u32, memory: u64, disk: u64 }
-            let instance: Instance = serde_json::from_slice(&output.stdout)?;
-            VmResources { cpus: instance.cpus, memory_gib: instance.memory.div_ceil(1<<30) as u32,
-                disk_gib: instance.disk.div_ceil(1<<30) as u32 }
-        } else { VmResources { cpus: 2, memory_gib: 2, disk_gib: 8 } };
-        let file = root.join("lima/modelcat/disk");
-        let min_disk = if file.exists() { std::fs::metadata(file)?.len().div_ceil(1<<30).max(1) } else { 8 };
-        let max_cpu = std::thread::available_parallelism()?.get() as u32;
-        let mem = Command::new("/usr/sbin/sysctl").args(["-n","hw.memsize"]).output()?;
-        let max_memory = std::str::from_utf8(&mem.stdout)?.trim().parse::<u64>()? >> 30;
-        let configured = if let Some(value) = limits {
-            ensure!((1..=max_cpu).contains(&value.cpus), "CPU 超出本机范围");
-            ensure!((1..=max_memory).contains(&u64::from(value.memory_gib)), "内存超出本机范围");
-            ensure!(u64::from(value.disk_gib) >= min_disk, "虚拟磁盘不能小于现有容量（{min_disk} GiB）");
-            prepare_root(&root)?;
-            let pending = root.join(format!(".resources-{}", uuid::Uuid::new_v4()));
-            std::fs::write(&pending, serde_json::to_vec(&value)?)?;
-            std::fs::rename(pending, root.join(RESOURCE_FILE))?;
-            value
-        } else { saved_resources(&root)?.unwrap_or(current) };
-        Ok(serde_json::json!({"limits":configured,"current":current,"min_disk":min_disk,
-            "max_cpu":max_cpu,"max_memory":max_memory}))
+        resource_limits(workspace_root(None)?, limits)
     }).await.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))
+}
+
+fn resource_limits(root: PathBuf, limits: Option<VmResources>) -> Result<serde_json::Value> {
+
+    let current = if root.join("lima/modelcat/lima.yaml").is_file() {
+        let driver = Driver { root: root.clone(), runtime: runtime()? };
+        let output = driver.call(&["list", "--json", "modelcat"])?;
+        #[derive(serde::Deserialize)]
+        struct Instance { cpus: u32, memory: u64, disk: u64 }
+        let instance: Instance = serde_json::from_slice(&output.stdout)?;
+        VmResources { cpus: instance.cpus, memory_gib: instance.memory.div_ceil(1<<30) as u32,
+            disk_gib: instance.disk.div_ceil(1<<30) as u32 }
+    } else { VmResources { cpus: 2, memory_gib: 2, disk_gib: 8 } };
+    let file = root.join("lima/modelcat/disk");
+    let min_disk = if file.exists() { std::fs::metadata(file)?.len().div_ceil(1<<30).max(1) } else { 8 };
+    let max_cpu = std::thread::available_parallelism()?.get() as u32;
+    let mem = Command::new("/usr/sbin/sysctl").args(["-n","hw.memsize"]).output()?;
+    let max_memory = std::str::from_utf8(&mem.stdout)?.trim().parse::<u64>()? >> 30;
+    let configured = if let Some(value) = limits {
+        ensure!((1..=max_cpu).contains(&value.cpus), "CPU 超出本机范围");
+        ensure!((1..=max_memory).contains(&u64::from(value.memory_gib)), "内存超出本机范围");
+        ensure!(u64::from(value.disk_gib) >= min_disk, "虚拟磁盘不能小于现有容量（{min_disk} GiB）");
+        prepare_root(&root)?;
+        let pending = root.join(format!(".resources-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&pending, serde_json::to_vec(&value)?)?;
+        std::fs::rename(pending, root.join(RESOURCE_FILE))?;
+        value
+    } else { saved_resources(&root)?.unwrap_or(current) };
+    Ok(serde_json::json!({"limits":configured,"current":current,"min_disk":min_disk,
+        "max_cpu":max_cpu,"max_memory":max_memory}))
 }
 
 #[tauri::command]
 pub async fn vm_usage(window: tauri::WebviewWindow, seconds: u32) -> std::result::Result<serde_json::Value, String> {
     if window.label() != "main" { return Err("请在工具管理中查看用量".into()); }
-    let result: Result<_> = async {
-        let driver = Driver { root: workspace_root(None)?, runtime: runtime()? };
-        ensure!([0, 300, 3600, 86400].contains(&seconds), "无效的监控时段");
-        let mut cmd = tokio::process::Command::from(driver.command());
-        cmd.args(["shell", "modelcat", "--", "python3", "-c", include_str!("../vm-monitor.py"), &seconds.to_string()]).kill_on_drop(true);
-        let output = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output()).await??;
-        ensure!(output.status.success(), "虚拟机采样失败");
-        Ok(serde_json::from_slice(&output.stdout)?)
-    }.await;
-    result.map_err(|e| format!("{e:#}"))
+    usage(None, seconds).await.map_err(|e| format!("{e:#}"))
+}
+
+async fn usage(directory: Option<&Path>, seconds: u32) -> Result<serde_json::Value> {
+    let root = workspace_root(directory)?;
+    let driver = Driver { root, runtime: runtime()? };
+    ensure!([0, 300, 3600, 86400].contains(&seconds), "无效的监控时段");
+    let mut cmd = tokio::process::Command::from(driver.command());
+    cmd.args(["shell", "modelcat", "--", "python3", "-c", include_str!("../vm-monitor.py"), &seconds.to_string()]).kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output()).await??;
+    ensure!(output.status.success(), "虚拟机采样失败");
+    Ok(serde_json::from_slice(&output.stdout)?)
+
 }
 
 #[derive(Default)]
@@ -597,6 +604,7 @@ pub fn run_tool_command(directory: Option<&Path>, action: &crate::ToolAction) ->
         ToolAction::Restart { tool } => return driver.launch_tool(tool, "restart"),
         ToolAction::Authorize { tool } => ("authorize", tool, &[]),
         ToolAction::Status { tool } => ("status", tool, &[]),
+        ToolAction::Network { tool, mode } => (mode.as_str(), tool, &[]),
         ToolAction::Stop { tool } => ("stop", tool, &[]),
         ToolAction::Logs { tool } => ("logs", tool, &[]),
         ToolAction::Autostart { tool, state } => ("autostart", tool, &[state]),
@@ -716,7 +724,11 @@ fn workspace_root(directory: Option<&Path>) -> Result<PathBuf> {
 }
 
 pub(crate) fn codex_profile(create: bool) -> Result<PathBuf> {
-    let root = workspace_root(None)?;
+    codex_profile_at(None, create)
+}
+
+pub(crate) fn codex_profile_at(directory: Option<&Path>, create: bool) -> Result<PathBuf> {
+    let root = workspace_root(directory)?;
     if create {
         prepare_root(&root)?;
     }
@@ -848,19 +860,22 @@ fn prepare_root(root: &Path) -> Result<()> {
 
 #[tauri::command]
 pub async fn vm_verify_platform(key: String) -> std::result::Result<(), String> {
-    channel_node::onboarding::verify_platform(PLATFORM_GATEWAY, &key)
-        .await
-        .map_err(|error| error.to_string())?;
-    let result = (|| -> Result<()> {
-        let root = check_root(Path::new(&vm_default_directory()))?;
-        prepare_root(&root)?;
-        let receipt = root.join(PLATFORM_VERIFIED);
-        if !receipt.is_file() {
-            std::fs::OpenOptions::new().write(true).create_new(true).open(receipt)?;
-        }
-        Ok(())
-    })();
-    result.map_err(|error| format!("{error:#}"))
+    let root = profile_root(None).map_err(|e| e.to_string())?;
+    login_platform(&key, &root).await.map_err(|e| format!("{e:#}"))
+}
+
+pub fn profile_root(directory: Option<&Path>) -> Result<PathBuf> {
+    match directory {
+        Some(path) => check_root(path),
+        None => check_root(Path::new(&vm_default_directory())),
+    }
+}
+
+pub async fn login_platform(key: &str, root: &Path) -> Result<()> {
+    channel_node::onboarding::verify_platform(PLATFORM_GATEWAY, key).await?;
+    prepare_root(root)?;
+    std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(root.join(PLATFORM_VERIFIED))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1090,37 +1105,113 @@ pub async fn vm_start(
     tauri::async_runtime::spawn_blocking(move || -> Result<String> {
         let _operation = operation;
         let root = check_root(Path::new(&directory))?;
-        let driver = Driver {
-            root,
-            runtime: runtime()?,
-        };
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        if driver.root.join(WORKSPACE_MARKER).is_file() {
-            let _ = progress.emit_to("main", "workspace-start-progress", "正在检查工作区…");
-            runtime.block_on(driver.inspect_running())?;
-        }
-        prepare_root(&driver.root)?;
-        let lock = lock_workspace(&driver.root).context("无法锁定工作区，请检查是否已在其他窗口打开")?;
-        for sub in ["host-home", "cache", "tmp"] {
-            std::fs::create_dir_all(driver.root.join(sub))?;
-        }
-        let was_running = runtime.block_on(driver.inspect_running())?;
-        let default = check_root(Path::new(&vm_default_directory()))?;
-        let result = driver.open_workspace(&default, was_running, |message| {
+        start_managed(&worker, root, &profile_root(None)?, |message| {
             let _ = progress.emit_to("main", "workspace-start-progress", message);
-        });
-        if result.is_ok() || (!was_running && runtime.block_on(driver.stop_if_running()).is_err()) {
-            *worker.workspace.lock().unwrap() = Some(Workspace {
-                driver,
-                _lock: lock,
-                management_url: result.as_ref().ok().cloned(),
-            });
-        }
-        result.map(Into::into)
+        }).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())
     .and_then(|r| r.map_err(|e| format!("{e:#}")))
+}
+
+fn start_managed(state: &VmState, root: PathBuf, default: &Path, report: impl Fn(&str)) -> Result<tauri::Url> {
+    let driver = Driver {
+        root,
+        runtime: runtime()?,
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    if driver.root.join(WORKSPACE_MARKER).is_file() {
+        report("正在检查工作区…");
+        runtime.block_on(driver.inspect_running())?;
+    }
+    prepare_root(&driver.root)?;
+    let lock = lock_workspace(&driver.root).context("无法锁定工作区，请检查是否已在其他窗口打开")?;
+    for sub in ["host-home", "cache", "tmp"] {
+        std::fs::create_dir_all(driver.root.join(sub))?;
+    }
+    let was_running = runtime.block_on(driver.inspect_running())?;
+
+    let result = driver.open_workspace(default, was_running, report);
+    if result.is_ok() || (!was_running && runtime.block_on(driver.stop_if_running()).is_err()) {
+        *state.workspace.lock().unwrap() = Some(Workspace {
+            driver,
+            _lock: lock,
+            management_url: result.as_ref().ok().cloned(),
+        });
+    }
+    result
+}
+
+#[derive(clap::Subcommand)]
+pub enum WorkspaceAction {
+    Start,
+    Stop,
+    Status,
+    /// Show limits, or set all three together. Changes apply on the next start.
+    Resources {
+        #[arg(long, requires_all=["memory_gib","disk_gib"])] cpus: Option<u32>,
+        #[arg(long, requires="cpus")] memory_gib: Option<u32>,
+        #[arg(long, requires="cpus")] disk_gib: Option<u32>,
+    },
+    /// Read the latest sample or 300, 3600, or 86400 seconds of history.
+    Monitor { #[arg(long, default_value_t=0)] seconds: u32 },
+    /// Get or change the desktop stop-on-exit preference.
+    StopOnExit { enabled: Option<bool> },
+    /// Show the current workspace path.
+    Directory { path: Option<PathBuf> },
+    /// Sign out of the platform after stopping the workspace.
+    Logout,
+}
+pub async fn workspace_cli(directory: Option<&Path>, action: &WorkspaceAction) -> Result<()> {
+    let default = profile_root(directory)?;
+    let root = workspace_root(directory)?;
+    match action {
+        WorkspaceAction::Start => {
+            ensure!(default.join(PLATFORM_VERIFIED).is_file(), "run modelcat login first");
+            tokio::task::spawn_blocking(move || {
+                start_managed(&VmState::default(), root, &default, |stage| eprintln!("{stage}")).map(|_| ())
+            }).await??;
+            println!("Workspace started");
+        }
+        WorkspaceAction::Stop => return stop_workspace_command(directory).await,
+        WorkspaceAction::Logout => {
+            if root.join("lima/modelcat/lima.yaml").is_file() { stop_saved_workspace(root).await?; }
+            match std::fs::remove_file(default.join(PLATFORM_VERIFIED)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                _ => {}
+            }
+        }
+        WorkspaceAction::Status => {
+            let running = root.join("lima/modelcat/lima.yaml").is_file();
+            let health = if running { Driver {root, runtime: runtime()?}.inspect_health().await }
+                else { RuntimeHealth { vm_running: Some(false), ..Default::default() } };
+            println!("{}", serde_json::json!({"verified":default.join(PLATFORM_VERIFIED).is_file(),"runtime":health}));
+        }
+        WorkspaceAction::Resources { cpus, memory_gib, disk_gib } => {
+            let limits = cpus.zip(*memory_gib).zip(*disk_gib).map(|((cpus,memory_gib),disk_gib)| VmResources {cpus,memory_gib,disk_gib});
+            println!("{}", resource_limits(root, limits)?);
+        }
+        WorkspaceAction::Monitor {seconds} => println!("{}", usage(directory,*seconds).await?),
+        WorkspaceAction::StopOnExit {enabled} => println!("{}", stop_on_exit(&default,*enabled)?),
+        WorkspaceAction::Directory { path } => {
+            if let Some(path) = path {
+                ensure!(directory.is_none(), "use directory PATH without --data-dir to change the saved location");
+                let target = check_root(path)?;
+                prepare_root(&default)?;
+                let _lock = lock_workspace(&root)?;
+                if root.join("lima/modelcat/lima.yaml").is_file() {
+                    let driver = Driver { root: root.clone(), runtime: runtime()? };
+                    ensure!(!driver.inspect_running().await?, "stop the current workspace first");
+                }
+                prepare_root(&target)?;
+                remember_workspace_root(&default, &target)?;
+                println!("{}", target.display());
+            } else {
+                println!("{}", root.display());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn workspace_host_port() -> u16 {

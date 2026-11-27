@@ -223,8 +223,11 @@ impl App {
         Ok(app)
     }
     pub async fn save_config(&self, cfg: Config) -> Result<()> {
-        cfg.validate()?;
         let _guard = self.mutation.lock().await;
+        self.save_config_locked(cfg).await
+    }
+    pub(crate) async fn save_config_locked(&self, cfg: Config) -> Result<()> {
+        cfg.validate()?;
         for model in self.ollama_models.read().await.iter() {
             let id = model.id();
             anyhow::ensure!(
